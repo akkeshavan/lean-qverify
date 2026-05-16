@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "lean-qverify"
+version = "0.1.0"
+description = "Formal verification of Qiskit quantum circuits via Lean 4"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["quantum computing", "formal verification", "qiskit", "lean4"]
+
+dependencies = [
+    "qiskit>=1.0",
+    "qiskit-aer>=0.14",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+gpu = [
+    "qiskit-aer-gpu>=0.14",
+    "cupy-cuda12x>=13.0",
+    "cuquantum-python>=24.0",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov",
+    "black",
+    "ruff",
+]
+
+[project.scripts]
+# Helper that builds the Lean binary if not already present
+lean-qverify-build = "lean_qverify.build:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["lean_qverify*"]
+
+[tool.pytest.ini_options]
+markers = [
+    "gpu: marks tests that require an NVIDIA GPU (skipped if none present)",
+    "lean: marks tests that require the Lean verifier binary",
+]
+testpaths = ["tests/python"]
+
+[tool.ruff]
+line-length = 100
