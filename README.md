@@ -88,8 +88,10 @@ All of the following are kernel-checked — no `sorry` anywhere in the proof tre
 | H∘X∘H, H∘Z∘H | ≡ Z, ≡ X | `nlinarith` |
 | RZ(0) | ≡ I | `Rz_zero_id` |
 | RZ(θ)∘RZ(φ) | ≡ RZ(θ+φ) | `Rz_mat_add` |
+| SWAP | ≡ CNOT(i,j)∘CNOT(j,i)∘CNOT(i,j) | `Nat.testBit_xor` + sum collapse |
+| Grover (2-qubit, 1 step) | P(q₀=1) ≥ 0.99 | explicit 4×4 unitary + `norm_num` |
 
-Two `sorry` stubs remain: `SWAP_eq_three_CNOTs` (XOR bit-flip argument) and `groverStep2_correct` (4×4 Grover unitary expansion, numerically P = 1.000).
+All 24 theorems are kernel-checked with no `sorry` in the proof tree.
 
 ---
 
@@ -162,7 +164,7 @@ lake --version
 ### 2. Clone and build
 
 ```bash
-git clone <this-repo>
+git clone https://github.com/akkeshavan/lean-qverify
 cd lean-qverify
 
 # Fetch Mathlib (first run downloads ~500 MB of prebuilt cache)
@@ -275,6 +277,6 @@ Install with `pip install -e ".[gpu]"` on a CUDA 12 machine. The package falls b
 
 ## Status
 
-**Phase 1 complete.** All core types, parser, elaborator, specification language, and 22 kernel-checked theorems are implemented and building. The two remaining `sorry` stubs (SWAP decomposition and Grover probability) are the Phase 2 proof targets.
+**Complete.** All core types, parser, elaborator, specification language, and 24 kernel-checked theorems are implemented and building with no `sorry` remaining.
 
-See `SPEC.md` for the full design specification and `FUTURE_WORK.md` for the Phase 2/3 roadmap.
+See `SPEC.md` for the full design specification and `FUTURE_WORK.md` for the roadmap.
