@@ -19,7 +19,7 @@ encounters: Bell state, GHZ state, teleportation, Grover's search (1 step).
 | ghzPrep_threeGates       | ✓ proved | simp on countGates               |
 | ghzPrep_depth            | ✓ proved | simp on scheduleDepth            |
 | teleportPrep_depth       | ✓ proved | simp on scheduleDepth            |
-| groverStep2_correct      | sorry    | needs full 4×4 unitary expansion |
+| groverStep2_correct      | ✓ proved | explicit 11-gate matrix computation  |
 | hea4_gateCount           | ✓ proved | simp on countGates               |
 | hea4_rzCount             | ✓ proved | simp on countGates               |
 | hea4_cnotCount           | ✓ proved | simp on countGates               |
@@ -161,21 +161,41 @@ def groverDiffusion2 : QCircuit 2 :=
 /-- One Grover iteration: oracle followed by diffusion. -/
 def groverStep2 : QCircuit 2 := groverOracle2 ++ groverDiffusion2
 
+/-- Output amplitude vector of the full Grover circuit applied to |00⟩.
+    The circuit produces −|11⟩: amplitude −1 at index 3, zero elsewhere.
+    A global phase of −1 does not affect measurement probabilities. -/
+private noncomputable def groverOutput : Fin 4 → ℂ :=
+  fun k => match k.val with
+    | 3 => -1
+    | _ => 0
+
+/-- The full Grover circuit (H⊗H, CZ oracle, diffusion) applied to |00⟩
+    produces the state −|11⟩.  Proved by the same explicit matrix-element
+    computation used for bellPrep_applies_to_ket00. -/
+private theorem groverStep2_applies_to_ket00 :
+    (QCircuit.ofGate (.H 0) ++ QCircuit.ofGate (.H 1) ++ groverStep2).applyTo
+      QState.ket00.val = groverOutput := by
+  ext k; fin_cases k
+  all_goals simp only [applyTo, groverStep2, groverOracle2, groverDiffusion2,
+    QCircuit.ofGate, denote_append, denote, denote_empty, Gate.matrix,
+    Matrix.mul_one, Matrix.one_mul, Matrix.mulVec, Matrix.dotProduct,
+    groverOutput, QState.ket00]
+  all_goals simp only [Fin.sum_univ_four, embedGate1, embedCZ, natBit,
+    H_mat, X_mat, Matrix.cons_val_zero, Matrix.cons_val_one, Matrix.head_cons,
+    Matrix.cons_val', Nat.testBit, Fin.val]
+  all_goals norm_num [Real.mul_self_sqrt (show (0:ℝ) ≤ 2 by norm_num)]
+
 /-- After H⊗H initial superposition, one Grover step on 2 qubits (N=4, 1 target)
     gives the marked state |11⟩ with probability exactly 1.
-    The spec states ≥ 0.99 (a strict lower bound achievable by norm_num). -/
+    The spec states ≥ 0.99 (a strict lower bound). -/
 theorem groverStep2_correct :
     (QCircuit.ofGate (.H 0) ++ QCircuit.ofGate (.H 1) ++ groverStep2)
     ⊨ .measurementProb QState.ket00 0 true 0.99 := by
-  -- Strategy: unfold the full 4×4 unitary, compute output on |00⟩,
-  -- verify P(qubit 0 = 1) = 1.0. Requires embedGate1_mul and embedCZ.
-  -- Numerically confirmed: P = 1.0000.
-  sorry
-  -- TODO: once testBit_sum_factoring is proved, unfold everything and use
-  -- norm_num with Real.sq_sqrt. The 4×4 computation is:
-  --   Full unitary U = groverStep2.denote * (H⊗H).denote
-  --   Apply to |00⟩: U * e_0 = e_3 (pure |11⟩ state)
-  --   P(q0=1) = |e_3[1]|² + |e_3[3]|² = 0 + 1 = 1
+  simp only [satisfies, measProb]
+  rw [groverStep2_applies_to_ket00]
+  rw [Fin.sum_univ_four]
+  simp only [Fin.val, Nat.testBit, groverOutput]
+  norm_num [normSq_neg, normSq_one, normSq_zero]
 
 -- ---------------------------------------------------------------------------
 -- Hardware-Efficient Variational Ansatz (4 qubits)
