@@ -91,7 +91,7 @@ All of the following are kernel-checked — no `sorry` anywhere in the proof tre
 | SWAP | ≡ CNOT(i,j)∘CNOT(j,i)∘CNOT(i,j) | `Nat.testBit_xor` + sum collapse |
 | Grover (2-qubit, 1 step) | P(q₀=1) ≥ 0.99 | explicit 4×4 unitary + `norm_num` |
 
-All 24 theorems are kernel-checked with no `sorry` in the proof tree.
+All 25 theorems are kernel-checked with no `sorry` in the proof tree.
 
 ---
 
