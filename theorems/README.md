@@ -29,7 +29,14 @@ A clean `lake build` with zero warnings is the guarantee.
 | Mathlib | 4.14.0 | fetched automatically by `lake` |
 | Internet | required for first run | to download Mathlib cache (~500 MB) |
 
+**Platform support:** macOS and Linux work out of the box with the instructions
+below.  Windows users should follow the
+[Lean 4 Windows installation guide](https://leanprover.github.io/lean4/doc/setup.html)
+and then run the same `lake` commands in a terminal.
+
 ### Install elan (Lean version manager)
+
+**macOS / Linux:**
 
 ```bash
 curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh
@@ -38,7 +45,7 @@ curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf 
 Restart your shell, then verify:
 
 ```bash
-lean --version   # should print Lean 4.14.0
+lean --version   # should print Lean (version 4.14.0, ...)
 lake --version
 ```
 
@@ -62,7 +69,12 @@ lake update
 lake build
 ```
 
-A successful build produces output similar to:
+**Expected time:** the first build compiles the lean-qverify library on top of
+Mathlib and typically takes **5–15 minutes** even with the prebuilt cache
+downloaded.  Subsequent builds are incremental and complete in seconds.
+Do not interrupt the build — it is not hung.
+
+A successful build produces:
 
 ```
 Build completed successfully.
@@ -120,12 +132,14 @@ the build is not clean.
 To confirm no `sorry` is present in the proof files directly:
 
 ```bash
-# From the repository root:
+# From the repository root (one level above theorems/):
+cd ..
 grep -rn "sorry" LeanQVerify/Circuit/Identities.lean
 grep -rn "sorry" LeanQVerify/Spec/StandardSpecs.lean
+cd theorems
 ```
 
-Both commands should return no output.
+Both `grep` commands should return no output.
 
 The only `sorry` instances in the entire library are:
 
