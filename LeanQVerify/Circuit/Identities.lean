@@ -32,7 +32,7 @@ open QCircuit
 /-- Applying Hadamard twice recovers the identity. -/
 theorem H_H_eq_id (n : ℕ) (i : Fin n) :
     (ofGate (.H i) ++ ofGate (.H i)) ≅ QCircuit.id := by
-  unfold equiv id ofGate
+  unfold equiv QCircuit.id ofGate
   simp only [denote_append, denote, denote_empty, Gate.matrix,
              Matrix.mul_one, Matrix.one_mul]
   exact embedGate1_self_inverse n i H_mat H_mat_unitary
@@ -44,7 +44,7 @@ theorem H_H_eq_id (n : ℕ) (i : Fin n) :
 /-- Pauli X is its own inverse. -/
 theorem X_X_eq_id (n : ℕ) (i : Fin n) :
     (ofGate (.X i) ++ ofGate (.X i)) ≅ QCircuit.id := by
-  unfold equiv id ofGate
+  unfold equiv QCircuit.id ofGate
   simp only [denote_append, denote, denote_empty, Gate.matrix,
              Matrix.mul_one, Matrix.one_mul]
   exact embedGate1_self_inverse n i X_mat X_mat_unitary
@@ -56,7 +56,7 @@ theorem X_X_eq_id (n : ℕ) (i : Fin n) :
 /-- Pauli Z is its own inverse. -/
 theorem Z_Z_eq_id (n : ℕ) (i : Fin n) :
     (ofGate (.Z i) ++ ofGate (.Z i)) ≅ QCircuit.id := by
-  unfold equiv id ofGate
+  unfold equiv QCircuit.id ofGate
   simp only [denote_append, denote, denote_empty, Gate.matrix,
              Matrix.mul_one, Matrix.one_mul]
   exact embedGate1_self_inverse n i Z_mat Z_mat_unitary
@@ -68,7 +68,7 @@ theorem Z_Z_eq_id (n : ℕ) (i : Fin n) :
 /-- Pauli Y is its own inverse. -/
 theorem Y_Y_eq_id (n : ℕ) (i : Fin n) :
     (ofGate (.Y i) ++ ofGate (.Y i)) ≅ QCircuit.id := by
-  unfold equiv id ofGate
+  unfold equiv QCircuit.id ofGate
   simp only [denote_append, denote, denote_empty, Gate.matrix,
              Matrix.mul_one, Matrix.one_mul]
   exact embedGate1_self_inverse n i Y_mat Y_mat_unitary
@@ -80,7 +80,7 @@ theorem Y_Y_eq_id (n : ℕ) (i : Fin n) :
 /-- CNOT applied twice recovers the identity. -/
 theorem CNOT_CNOT_eq_id (n : ℕ) (c t : Fin n) (hct : c ≠ t) :
     (ofGate (.CNOT c t) ++ ofGate (.CNOT c t)) ≅ QCircuit.id := by
-  unfold equiv id ofGate
+  unfold equiv QCircuit.id ofGate
   simp only [denote_append, denote, denote_empty, Gate.matrix,
              Matrix.mul_one, Matrix.one_mul]
   exact embedCNOT_self_mul n c t hct
@@ -89,31 +89,32 @@ theorem CNOT_CNOT_eq_id (n : ℕ) (c t : Fin n) (hct : c ≠ t) :
 -- H X H = Z  (Hadamard conjugates X to Z)
 -- ---------------------------------------------------------------------------
 
+private lemma sqrt2_ne_zero_C : ((Real.sqrt 2 : ℝ) : ℂ) ≠ 0 :=
+  by exact_mod_cast Real.sqrt_ne_zero'.mpr (by norm_num)
+
+private lemma sqrt2_sq_C : ((Real.sqrt 2 : ℝ) : ℂ) * Real.sqrt 2 = 2 :=
+  by exact_mod_cast Real.mul_self_sqrt (by norm_num)
+
+private lemma H_X_H_mat : H_mat * (X_mat * H_mat) = Z_mat := by
+  ext ⟨a, ha⟩ ⟨b, hb⟩
+  interval_cases a <;> interval_cases b <;>
+    simp only [Matrix.mul_apply, Fin.sum_univ_two, H_mat, X_mat, Z_mat,
+      Matrix.cons_val_zero, Matrix.cons_val_one, Matrix.head_cons, Matrix.cons_val'] <;>
+    (push_cast; field_simp [sqrt2_ne_zero_C, sqrt2_sq_C])
+
+private lemma H_Z_H_mat : H_mat * (Z_mat * H_mat) = X_mat := by
+  ext ⟨a, ha⟩ ⟨b, hb⟩
+  interval_cases a <;> interval_cases b <;>
+    simp only [Matrix.mul_apply, Fin.sum_univ_two, H_mat, X_mat, Z_mat,
+      Matrix.cons_val_zero, Matrix.cons_val_one, Matrix.head_cons, Matrix.cons_val'] <;>
+    (push_cast; field_simp [sqrt2_ne_zero_C, sqrt2_sq_C])
+
 /-- The Hadamard gate conjugates X to Z. -/
 theorem H_X_H_eq_Z (n : ℕ) (i : Fin n) :
     (ofGate (.H i) ++ ofGate (.X i) ++ ofGate (.H i)) ≅ ofGate (.Z i) := by
   unfold equiv ofGate
-  simp only [denote_append, denote, denote_empty, Gate.matrix,
-             Matrix.mul_one, Matrix.one_mul]
-  -- Reduces to: embedGate1 n i H_mat * embedGate1 n i X_mat * embedGate1 n i H_mat
-  --           = embedGate1 n i Z_mat
-  -- Using embedGate1_mul twice: LHS = embedGate1 n i (H_mat * X_mat * H_mat)
-  -- And H_mat * X_mat * H_mat = Z_mat (2×2 identity)
-  rw [show embedGate1 n i H_mat * (embedGate1 n i X_mat * embedGate1 n i H_mat) =
-        embedGate1 n i (H_mat * X_mat * H_mat) by
-    rw [← embedGate1_mul, ← embedGate1_mul, Matrix.mul_assoc]]
-  congr 1
-  -- H * X * H = Z (2×2 matrix identity)
-  ext a b; fin_cases a <;> fin_cases b
-  all_goals simp only [Matrix.mul_apply, Fin.sum_univ_two, H_mat, X_mat, Z_mat,
-    Matrix.cons_val_zero, Matrix.cons_val_one, Matrix.head_cons, Matrix.cons_val']
-  all_goals {
-    push_cast
-    have hne : (Real.sqrt 2 : ℝ) ≠ 0 := Real.sqrt_ne_zero'.mpr (by norm_num)
-    have hsq : Real.sqrt 2 * Real.sqrt 2 = 2 := Real.mul_self_sqrt (by norm_num)
-    field_simp
-    nlinarith [hsq]
-  }
+  simp only [denote_append, denote, denote_empty, Gate.matrix, Matrix.mul_one, Matrix.one_mul]
+  rw [mul_assoc, embedGate1_mul, embedGate1_mul, H_X_H_mat]
 
 -- ---------------------------------------------------------------------------
 -- H Z H = X
@@ -123,22 +124,8 @@ theorem H_X_H_eq_Z (n : ℕ) (i : Fin n) :
 theorem H_Z_H_eq_X (n : ℕ) (i : Fin n) :
     (ofGate (.H i) ++ ofGate (.Z i) ++ ofGate (.H i)) ≅ ofGate (.X i) := by
   unfold equiv ofGate
-  simp only [denote_append, denote, denote_empty, Gate.matrix,
-             Matrix.mul_one, Matrix.one_mul]
-  rw [show embedGate1 n i H_mat * (embedGate1 n i Z_mat * embedGate1 n i H_mat) =
-        embedGate1 n i (H_mat * Z_mat * H_mat) by
-    rw [← embedGate1_mul, ← embedGate1_mul, Matrix.mul_assoc]]
-  congr 1
-  ext a b; fin_cases a <;> fin_cases b
-  all_goals simp only [Matrix.mul_apply, Fin.sum_univ_two, H_mat, X_mat, Z_mat,
-    Matrix.cons_val_zero, Matrix.cons_val_one, Matrix.head_cons, Matrix.cons_val']
-  all_goals {
-    push_cast
-    have hne : (Real.sqrt 2 : ℝ) ≠ 0 := Real.sqrt_ne_zero'.mpr (by norm_num)
-    have hsq : Real.sqrt 2 * Real.sqrt 2 = 2 := Real.mul_self_sqrt (by norm_num)
-    field_simp
-    nlinarith [hsq]
-  }
+  simp only [denote_append, denote, denote_empty, Gate.matrix, Matrix.mul_one, Matrix.one_mul]
+  rw [mul_assoc, embedGate1_mul, embedGate1_mul, H_Z_H_mat]
 
 -- ---------------------------------------------------------------------------
 -- Helper lemmas for SWAP = three CNOTs
@@ -150,7 +137,10 @@ private lemma shift_testBit_same (k : ℕ) : (1 <<< k).testBit k = true := by
 
 /-- Bit l of (1 <<< k) is false when l ≠ k. -/
 private lemma shift_testBit_ne (k l : ℕ) (h : l ≠ k) : (1 <<< k).testBit l = false := by
-  simp [Nat.shiftLeft_eq, one_mul, Nat.testBit_two_pow, h]
+  simp [Nat.shiftLeft_eq, one_mul, Nat.testBit_two_pow, Ne.symm h]
+
+private lemma setBit_false (v i : ℕ) : setBit v i false = Nat.ldiff v (1 <<< i) := rfl
+private lemma setBit_true (v i : ℕ) : setBit v i true = v ||| (1 <<< i) := rfl
 
 /-- bi=F, bj=F: three CNOTs leave a unchanged; SWAP target also equals a. -/
 private lemma cnot3_FF (i j : ℕ) (hij : i ≠ j) (a : ℕ)
@@ -159,11 +149,9 @@ private lemma cnot3_FF (i j : ℕ) (hij : i ≠ j) (a : ℕ)
   apply Nat.eq_of_testBit_eq; intro k
   simp only [Nat.testBit_ldiff]
   by_cases hki : k = i
-  · subst hki
-    simp [shift_testBit_same i, shift_testBit_ne j i hij, hbi]
+  · simp [hki, shift_testBit_same i, shift_testBit_ne j i hij, hbi]
   · by_cases hkj : k = j
-    · subst hkj
-      simp [shift_testBit_ne i j hij.symm, shift_testBit_same j, hbj]
+    · simp [hkj, shift_testBit_ne i j hij.symm, shift_testBit_same j, hbj]
     · simp [shift_testBit_ne i k hki, shift_testBit_ne j k hkj]
 
 /-- bi=T, bj=F: three CNOTs produce a^^^(1<<<j)^^^(1<<<i); SWAP target equals that. -/
@@ -173,11 +161,9 @@ private lemma cnot3_TF (i j : ℕ) (hij : i ≠ j) (a : ℕ)
   apply Nat.eq_of_testBit_eq; intro k
   simp only [Nat.testBit_xor, Nat.testBit_ldiff, Nat.testBit_or]
   by_cases hki : k = i
-  · subst hki
-    simp [shift_testBit_same i, shift_testBit_ne j i hij, hbi]
+  · simp [hki, shift_testBit_same i, shift_testBit_ne j i hij, hbi]
   · by_cases hkj : k = j
-    · subst hkj
-      simp [shift_testBit_ne i j hij.symm, shift_testBit_same j, hbj]
+    · simp [hkj, shift_testBit_ne i j hij.symm, shift_testBit_same j, hbj]
     · simp [shift_testBit_ne i k hki, shift_testBit_ne j k hkj]
 
 /-- bi=F, bj=T: three CNOTs produce a^^^(1<<<i)^^^(1<<<j); SWAP target equals that. -/
@@ -187,11 +173,9 @@ private lemma cnot3_FT (i j : ℕ) (hij : i ≠ j) (a : ℕ)
   apply Nat.eq_of_testBit_eq; intro k
   simp only [Nat.testBit_xor, Nat.testBit_ldiff, Nat.testBit_or]
   by_cases hki : k = i
-  · subst hki
-    simp [shift_testBit_same i, shift_testBit_ne j i hij, hbi]
+  · simp [hki, shift_testBit_same i, shift_testBit_ne j i hij, hbi]
   · by_cases hkj : k = j
-    · subst hkj
-      simp [shift_testBit_ne i j hij.symm, shift_testBit_same j, hbj]
+    · simp [hkj, shift_testBit_ne i j hij.symm, shift_testBit_same j, hbj]
     · simp [shift_testBit_ne i k hki, shift_testBit_ne j k hkj]
 
 /-- bi=T, bj=T: three CNOTs cancel back to a; SWAP target also equals a. -/
@@ -201,11 +185,9 @@ private lemma cnot3_TT (i j : ℕ) (hij : i ≠ j) (a : ℕ)
   apply Nat.eq_of_testBit_eq; intro k
   simp only [Nat.testBit_or]
   by_cases hki : k = i
-  · subst hki
-    simp [shift_testBit_same i, shift_testBit_ne j i hij, hbi]
+  · simp [hki, shift_testBit_same i, shift_testBit_ne j i hij, hbi]
   · by_cases hkj : k = j
-    · subst hkj
-      simp [shift_testBit_ne i j hij.symm, shift_testBit_same j, hbj]
+    · simp [hkj, shift_testBit_ne i j hij.symm, shift_testBit_same j, hbj]
     · simp [shift_testBit_ne i k hki, shift_testBit_ne j k hkj]
 
 /-- Core bit identity: CNOT(i,j)∘CNOT(j,i)∘CNOT(i,j) equals SWAP at the nat level. -/
@@ -214,10 +196,9 @@ private lemma cnot3_eq_swap_nat (i j : ℕ) (hij : i ≠ j) (a : ℕ) :
      let a2 := if a1.testBit j then a1 ^^^ (1 <<< i) else a1
      if a2.testBit i then a2 ^^^ (1 <<< j) else a2)
     = setBit (setBit a i (a.testBit j)) j (a.testBit i) := by
-  simp only []
-  simp only [setBit]
   cases hbi : a.testBit i <;> cases hbj : a.testBit j <;>
-    simp only [hbi, hbj, ite_true, ite_false,
+    simp only [hbi, hbj, setBit_false, setBit_true,
+               Bool.false_eq_true, Bool.true_eq_false, eq_self_iff_true, ite_true, ite_false,
                Nat.testBit_xor,
                shift_testBit_same i, shift_testBit_same j,
                shift_testBit_ne i j hij.symm, shift_testBit_ne j i hij,
@@ -252,31 +233,44 @@ theorem SWAP_eq_three_CNOTs (n : ℕ) (i j : Fin n) (h : i ≠ j) :
   -- Abbreviate the outputs of the first two CNOT gates
   set a1v := if a.val.testBit i.val then a.val ^^^ (1 <<< j.val) else a.val
   have ha1_lt : a1v < 2 ^ n := by
-    unfold_let a1v; split_ifs
+    unfold a1v; split_ifs
     · exact Nat.xor_lt_two_pow a.isLt hj_lt
     · exact a.isLt
   set a2v := if a1v.testBit j.val then a1v ^^^ (1 <<< i.val) else a1v
   have ha2_lt : a2v < 2 ^ n := by
-    unfold_let a2v; split_ifs
+    unfold a2v; split_ifs
     · exact Nat.xor_lt_two_pow ha1_lt hi_lt
     · exact ha1_lt
   -- Bit identity: the three-CNOT output equals the SWAP output
   have hbit : (if a2v.testBit i.val then a2v ^^^ (1 <<< j.val) else a2v) =
               setBit (setBit a.val i.val (a.val.testBit j.val)) j.val (a.val.testBit i.val) :=
     cnot3_eq_swap_nat i.val j.val hij_val a.val
-  -- Collapse the nested sums: outer (over x) then inner (over y)
+  -- Collapse nested sums: outer (over x, unique value a2v) then inner (over y, unique value a1v).
+  -- Matrix product is ((CNOT_ij * CNOT_ji) * CNOT_ij), so outer x = CNOT_ji(CNOT_ij(a)) = a2v
+  -- and inner y = CNOT_ij(a) = a1v.
   symm
-  rw [Finset.sum_eq_single (⟨a1v, ha1_lt⟩ : Fin (2 ^ n))]
-  · -- Unique outer term x = a1v: outer factor is 1
-    simp only [Fin.val, if_pos rfl, one_mul]
-    rw [Finset.sum_eq_single (⟨a2v, ha2_lt⟩ : Fin (2 ^ n))]
-    · -- Unique inner term y = a2v: apply bit identity to close
-      simp only [Fin.val, if_pos rfl, one_mul, hbit]
-    · intro y _ hy
-      simp [show y.val ≠ a2v from fun heq => hy (Fin.ext heq)]
+  rw [Finset.sum_eq_single (⟨a2v, ha2_lt⟩ : Fin (2 ^ n))]
+  · -- Unique outer term x = a2v
+    simp only [Fin.val]
+    rw [Finset.sum_eq_single (⟨a1v, ha1_lt⟩ : Fin (2 ^ n))]
+    · -- Unique inner term y = a1v: both conditions hold by rfl, then use hbit
+      simp only [ite_true, if_true, one_mul, hbit]
+    · -- Inner uniqueness: y ≠ a1v → CNOT_ij[a][y] = 0
+      intro y _ hy
+      simp [show y.val ≠ a1v from fun heq => hy (Fin.ext heq)]
     · simp
-  · intro x _ hx
-    simp [show x.val ≠ a1v from fun heq => hx (Fin.ext heq)]
+  · -- Outer uniqueness: x ≠ a2v → (Σ_y CNOT_ij[a][y] * CNOT_ji[y][x]) * CNOT_ij[x][b] = 0
+    intro x _ hx
+    have hx_ne : x.val ≠ a2v := fun heq => hx (Fin.ext heq)
+    apply mul_eq_zero_of_left
+    apply Finset.sum_eq_zero
+    intro y _
+    rcases eq_or_ne y.val a1v with h1 | h1
+    · -- y = a1v: CNOT_ij[a][a1v] = 1, but CNOT_ji[a1v][x] = if x = a2v then 1 else 0 = 0
+      simp only [Fin.val, h1, if_pos rfl, one_mul]
+      simp [hx_ne]
+    · -- y ≠ a1v: CNOT_ij[a][y] = 0
+      simp [h1]
   · simp
 
 -- ---------------------------------------------------------------------------
@@ -286,7 +280,7 @@ theorem SWAP_eq_three_CNOTs (n : ℕ) (i j : Fin n) (h : i ≠ j) :
 /-- Rz with angle 0 is the identity. -/
 theorem RZ_zero_eq_id (n : ℕ) (i : Fin n) :
     ofGate (.RZ 0 i) ≅ QCircuit.id := by
-  unfold equiv id ofGate
+  unfold equiv QCircuit.id ofGate
   simp only [denote_append, denote, denote_empty, Gate.matrix,
              Matrix.mul_one, Matrix.one_mul]
   rw [show embedGate1 n i (Rz_mat 0) = 1 from by
@@ -302,6 +296,6 @@ theorem RZ_add (n : ℕ) (i : Fin n) (θ φ : ℝ) :
   unfold equiv ofGate
   simp only [denote_append, denote, denote_empty, Gate.matrix,
              Matrix.mul_one, Matrix.one_mul]
-  rw [embedGate1_mul, Rz_mat_add]
+  rw [embedGate1_mul, Rz_mat_add, add_comm]
 
 end LeanQVerify

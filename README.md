@@ -161,14 +161,16 @@ lean --version   # should print Lean 4.14.0
 lake --version
 ```
 
-### 2. Clone and build
+### 2. Build
 
 ```bash
-git clone https://github.com/akkeshavan/lean-qverify
-cd lean-qverify
+# From inside the lean-qverify directory:
 
-# Fetch Mathlib (first run downloads ~500 MB of prebuilt cache)
+# Fetch Mathlib and lock dependency versions (uses pinned lake-manifest.json)
 lake update
+
+# Download prebuilt Mathlib oleans — skips ~30 min of compilation
+lake exe cache get
 
 # Build the verifier binary and all library files
 lake build

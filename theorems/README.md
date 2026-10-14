@@ -1,9 +1,7 @@
 # Independent Theorem Verification
 
-This folder lets anyone independently confirm that all 25 theorems claimed in
-the paper *lean-qverify: Bridging Qiskit and Lean 4 for Formal Quantum Circuit
-Verification* (ACM TQC, 2026) are genuinely kernel-checked by Lean 4 with no
-`sorry` in any proof tree.
+This folder lets you confirm that all 25 theorems claimed in the paper are
+kernel-checked by Lean 4 with no `sorry` in any proof tree.
 
 ---
 
@@ -15,9 +13,9 @@ A Lean theorem is kernel-checked if:
 2. Lean's type-checker (the kernel) accepts that proof term as a valid inhabitant
    of the stated type.
 
-There is no way to fake a passing build.  If a `sorry` exists anywhere in a
-proof's dependency chain, Lean emits a warning and the `#check_sorry` lint fails.
-A clean `lake build` with zero warnings is the guarantee.
+There is no way to fake a passing build. If a `sorry` exists anywhere in a
+proof's dependency chain, Lean emits a warning. A clean `lake build` with zero
+errors is the guarantee.
 
 ---
 
@@ -26,11 +24,10 @@ A clean `lake build` with zero warnings is the guarantee.
 | Tool | Version | Install |
 |------|---------|---------|
 | Lean 4 | 4.14.0 (pinned) | [elan](https://github.com/leanprover/elan) |
-| Mathlib | 4.14.0 | fetched automatically by `lake` |
-| Internet | required for first run | to download Mathlib cache (~500 MB) |
+| Mathlib | 4.14.0 (pinned) | fetched automatically by `lake` |
+| Internet | required for first run | to download ~500 MB Mathlib cache |
 
-**Platform support:** macOS and Linux work out of the box with the instructions
-below.  Windows users should follow the
+**Platform support:** macOS and Linux. Windows users should follow the
 [Lean 4 Windows installation guide](https://leanprover.github.io/lean4/doc/setup.html)
 and then run the same `lake` commands in a terminal.
 
@@ -53,41 +50,46 @@ lake --version
 
 ## Steps to verify all 25 theorems
 
-Run the following from inside the `theorems/` directory:
+Run the following from the **root of the artifact** (one level above this
+`theorems/` directory):
 
 ```bash
-# 1. Clone the repository (skip if you already have it)
-git clone https://github.com/akkeshavan/lean-qverify
-cd lean-qverify/theorems
-
-# 2. Fetch Mathlib and the parent library
-#    First run downloads ~500 MB of prebuilt cache; subsequent runs are fast.
+# 1. Fetch Mathlib and lock dependency versions
+#    (uses the pinned lake-manifest.json — no network surprise)
 lake update
 
-# 3. Build all theorem files
+# 2. Download prebuilt Mathlib oleans — skips ~30 min of compilation
+lake exe cache get
+
+# 3. Build the library and all theorem files
 #    A clean build with no errors = all 25 theorems verified.
+lake build
+
+# 4. Verify the theorems subfolder independently
+cd theorems
+lake update
+lake exe cache get
 lake build
 ```
 
-**Expected time:** the first build compiles the lean-qverify library on top of
-Mathlib and typically takes **5–15 minutes** even with the prebuilt cache
-downloaded.  Subsequent builds are incremental and complete in seconds.
-Do not interrupt the build — it is not hung.
-
-A successful build produces:
+**Expected output** (step 3 or 4):
 
 ```
 Build completed successfully.
 ```
 
-Any failure (type mismatch, missing proof, undeclared `sorry`) will print an
-error and exit non-zero.
+**Expected time:** with the prebuilt cache, the first build takes roughly
+**3–8 minutes** (compiling lean-qverify on top of Mathlib). Subsequent builds
+are incremental and complete in under 30 seconds.
+
+If `lake exe cache get` is unavailable (offline environment), omit step 2; the
+build then compiles Mathlib from source, which takes **30–60 minutes**.
 
 ---
 
-## Verifying individual theorems
+## Verifying individual theorem groups
 
-Each file in this directory corresponds to a group of theorems from the paper:
+Each file corresponds to a group of theorems from the paper:
 
 | File | Theorems | Circuit |
 |------|----------|---------|
@@ -97,7 +99,7 @@ Each file in this directory corresponds to a group of theorems from the paper:
 | `GateAlgebra.lean` | T15–T24 | Gate algebra identities |
 | `Grover.lean` | T25 | Grover's algorithm (2 qubits, 1 step) |
 
-To build a single file:
+To build a single group from inside `theorems/`:
 
 ```bash
 lake build BellState
@@ -111,7 +113,7 @@ lake build Grover
 
 ## What each file contains
 
-Every `.lean` file in this directory follows the same pattern:
+Every `.lean` file follows the same pattern:
 
 ```lean
 -- Stated proposition (exactly as in the paper)
@@ -120,31 +122,27 @@ example : <proposition> :=
 ```
 
 The `example` keyword forces Lean's kernel to type-check that `<theorem_name>`
-has the stated type.  If the types do not match, the build fails.
-If `<theorem_name>` does not exist, the build fails.
-If `sorry` is anywhere in `<theorem_name>`'s proof tree, Lean warns and
-the build is not clean.
+has the stated type. If the types do not match, the build fails. If
+`<theorem_name>` does not exist, the build fails. If `sorry` is anywhere in
+`<theorem_name>`'s proof tree, Lean warns and the build is not clean.
 
 ---
 
 ## Checking for sorry yourself
 
-To confirm no `sorry` is present in the proof files directly:
-
 ```bash
-# From the repository root (one level above theorems/):
-cd ..
+# From the artifact root:
 grep -rn "sorry" LeanQVerify/Circuit/Identities.lean
 grep -rn "sorry" LeanQVerify/Spec/StandardSpecs.lean
-cd theorems
 ```
 
-Both `grep` commands should return no output.
+Both commands should return **no output**.
 
-The only `sorry` instances in the entire library are:
+The only `sorry` instances in the library are in modules that no proved theorem
+depends on:
 
 - `LeanQVerify/QASM/Elaborator.lean` — the `floatToReal` bridge (Float → ℝ),
-  used only when parsing QASM files at runtime. **None of the 25 proved
+  used only at runtime when parsing QASM files. **None of the 25 proved
   theorems depend on this**: every proved circuit is defined directly in Lean
   with exact real-number angles.
 - `LeanQVerify/Foundation/DensityMatrix.lean` — infrastructure stubs for
@@ -160,8 +158,8 @@ The only `sorry` instances in the entire library are:
 | T1 | `bellPrep_twoGates` | Bell circuit uses 2 gates | `simp` |
 | T2 | `bellPrep_oneCNOT` | Bell circuit uses 1 CNOT | `simp` |
 | T3 | `bellPrep_depth` | Bell circuit depth ≤ 2 | `simp` |
-| T4 | `bellPrep_entangled` | P(q0=0) ≥ 1/2 from \|00⟩ | matrix + `norm_num` |
-| T5 | `bellPrep_entangled_one` | P(q0=1) ≥ 1/2 from \|00⟩ | matrix + `norm_num` |
+| T4 | `bellPrep_entangled` | P(q₀=0) ≥ 1/2 from \|00⟩ | matrix + `norm_num` |
+| T5 | `bellPrep_entangled_one` | P(q₀=1) ≥ 1/2 from \|00⟩ | matrix + `norm_num` |
 | T6 | `ghzPrep_threeGates` | GHZ circuit uses 3 gates | `simp` |
 | T7 | `ghzPrep_depth` | GHZ circuit depth ≤ 3 | `simp` |
 | T8 | `teleportPrep_depth` | Teleportation depth ≤ 4 | `simp` |
@@ -181,7 +179,4 @@ The only `sorry` instances in the entire library are:
 | T22 | `RZ_zero_eq_id` | RZ(0) ≅ I | `Rz_zero_id` |
 | T23 | `RZ_add` | RZ(θ) ∘ RZ(φ) ≅ RZ(θ+φ) | `Rz_mat_add` |
 | T24 | `SWAP_eq_three_CNOTs` | SWAP ≅ CNOT³ | `Nat.testBit_xor` |
-| T25 | `groverStep2_correct` | P(q0=1) ≥ 0.99 after Grover step | 4×4 matrix + `norm_num` |
-
-T16–T18 share one proof template (`embedGate1_self_inverse`) but are separate
-kernel-checked theorems with distinct names and types.
+| T25 | `groverStep2_correct` | P(q₀=1) ≥ 0.99 after Grover step | 4×4 matrix + `norm_num` |

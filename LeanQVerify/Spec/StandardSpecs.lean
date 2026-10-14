@@ -55,6 +55,7 @@ theorem bellPrep_oneCNOT :
 theorem bellPrep_depth :
     bellPrep ⊨ .maxDepth 2 := by
   simp [satisfies, depth, scheduleDepth, bellPrep, gateQubits]
+  intro b; fin_cases b <;> decide
 
 -- ---------------------------------------------------------------------------
 -- Bell state measurement probability
@@ -76,20 +77,19 @@ theorem bellPrep_applies_to_ket00 :
   ext k; fin_cases k
   all_goals simp only [applyTo, bellPrep, denote, denote_empty, Gate.matrix,
     Matrix.mul_one, Matrix.mulVec, Matrix.dotProduct, bellOutput, QState.ket00]
-  all_goals simp only [Fin.sum_univ_four, embedGate1, embedCNOT, natBit,
-    H_mat, Matrix.cons_val_zero, Matrix.cons_val_one, Matrix.head_cons,
-    Matrix.cons_val', Nat.testBit, Fin.val]
-  all_goals norm_num [Real.mul_self_sqrt (show (0:ℝ) ≤ 2 by norm_num)]
+  all_goals simp (config := { decide := true }) [Fin.sum_univ_four, Matrix.mul_apply,
+    embedGate1, embedCNOT, natBit, H_mat,
+    Matrix.cons_val_zero, Matrix.cons_val_one, Matrix.head_cons, Matrix.cons_val',
+    Nat.testBit, Fin.val, mul_zero, zero_mul, zero_add, add_zero, mul_one, one_mul]
 
 /-- Measuring qubit 0 of the Bell state gives 0 with probability 1/2. -/
 theorem bellPrep_entangled :
     bellPrep ⊨ .measurementProb QState.ket00 0 false (1/2) := by
   simp only [satisfies, measProb]
   rw [bellPrep_applies_to_ket00]
-  -- Sum over Fin 4, keeping only k where testBit k.val 0 = false
-  -- These are k = 0 (|00⟩) and k = 2 (|10⟩)
+  show (1/2 : ℝ) ≤ ∑ k : Fin 4, if k.val.testBit 0 = false then normSq (bellOutput k) else 0
   rw [Fin.sum_univ_four]
-  simp only [Fin.val, Nat.testBit, bellOutput]
+  simp (config := { decide := true }) only [Fin.val, Nat.testBit, bellOutput]
   norm_num [normSq_ofReal, Real.sq_sqrt (show (0:ℝ) ≤ 2 by norm_num),
             Real.sqrt_ne_zero'.mpr (show (0:ℝ) < 2 by norm_num)]
 
@@ -98,8 +98,9 @@ theorem bellPrep_entangled_one :
     bellPrep ⊨ .measurementProb QState.ket00 0 true (1/2) := by
   simp only [satisfies, measProb]
   rw [bellPrep_applies_to_ket00]
+  show (1/2 : ℝ) ≤ ∑ k : Fin 4, if k.val.testBit 0 = true then normSq (bellOutput k) else 0
   rw [Fin.sum_univ_four]
-  simp only [Fin.val, Nat.testBit, bellOutput]
+  simp (config := { decide := true }) only [Fin.val, Nat.testBit, bellOutput]
   norm_num [normSq_ofReal, Real.sq_sqrt (show (0:ℝ) ≤ 2 by norm_num),
             Real.sqrt_ne_zero'.mpr (show (0:ℝ) < 2 by norm_num)]
 
@@ -118,6 +119,7 @@ theorem ghzPrep_threeGates :
 theorem ghzPrep_depth :
     ghzPrep ⊨ .maxDepth 3 := by
   simp [satisfies, depth, scheduleDepth, ghzPrep, gateQubits]
+  intro b; fin_cases b <;> decide
 
 -- ---------------------------------------------------------------------------
 -- Teleportation
@@ -141,6 +143,7 @@ def teleportPrep : QCircuit 3 :=
 theorem teleportPrep_depth :
     teleportPrep ⊨ .maxDepth 4 := by
   simp [satisfies, depth, scheduleDepth, teleportPrep, gateQubits]
+  intro b; fin_cases b <;> decide
 
 -- ---------------------------------------------------------------------------
 -- Grover's algorithm — 1 iteration, 2 qubits (N=4, target=|11⟩)
@@ -178,12 +181,23 @@ private theorem groverStep2_applies_to_ket00 :
   ext k; fin_cases k
   all_goals simp only [applyTo, groverStep2, groverOracle2, groverDiffusion2,
     QCircuit.ofGate, denote_append, denote, denote_empty, Gate.matrix,
-    Matrix.mul_one, Matrix.one_mul, Matrix.mulVec, Matrix.dotProduct,
-    groverOutput, QState.ket00]
-  all_goals simp only [Fin.sum_univ_four, embedGate1, embedCZ, natBit,
-    H_mat, X_mat, Matrix.cons_val_zero, Matrix.cons_val_one, Matrix.head_cons,
-    Matrix.cons_val', Nat.testBit, Fin.val]
-  all_goals norm_num [Real.mul_self_sqrt (show (0:ℝ) ≤ 2 by norm_num)]
+    Matrix.mul_one, Matrix.one_mul, groverOutput, QState.ket00]
+  all_goals simp only [← Matrix.mulVec_mulVec]
+  all_goals simp (config := { decide := true }) [Matrix.mulVec, Matrix.dotProduct,
+    Fin.sum_univ_four, embedGate1, embedCZ, natBit, H_mat, X_mat,
+    Matrix.cons_val_zero, Matrix.cons_val_one, Matrix.head_cons,
+    Matrix.cons_val', Nat.testBit, Fin.val,
+    mul_zero, zero_mul, zero_add, add_zero, mul_one, one_mul,
+    Real.mul_self_sqrt (show (0:ℝ) ≤ 2 by norm_num)]
+  all_goals try ring
+  · have h6 : (Real.sqrt 2 : ℂ) ^ 6 = 8 := by
+      have h6r : (Real.sqrt 2 : ℝ) ^ 6 = 8 :=
+        calc (Real.sqrt 2) ^ 6 = ((Real.sqrt 2) ^ 2) ^ 3 := by ring
+          _ = 2 ^ 3 := by rw [Real.sq_sqrt (show (0:ℝ) ≤ 2 by norm_num)]
+          _ = 8 := by norm_num
+      exact_mod_cast h6r
+    rw [inv_pow, h6]
+    norm_num
 
 /-- After H⊗H initial superposition, one Grover step on 2 qubits (N=4, 1 target)
     gives the marked state |11⟩ with probability exactly 1.
@@ -193,8 +207,9 @@ theorem groverStep2_correct :
     ⊨ .measurementProb QState.ket00 0 true 0.99 := by
   simp only [satisfies, measProb]
   rw [groverStep2_applies_to_ket00]
+  show (0.99 : ℝ) ≤ ∑ k : Fin 4, if k.val.testBit 0 = true then normSq (groverOutput k) else 0
   rw [Fin.sum_univ_four]
-  simp only [Fin.val, Nat.testBit, groverOutput]
+  simp (config := { decide := true }) only [Fin.val, Nat.testBit, groverOutput]
   norm_num [normSq_neg, normSq_one, normSq_zero]
 
 -- ---------------------------------------------------------------------------
@@ -257,6 +272,7 @@ theorem hea4_cnotCount (θ₀ θ₁ θ₂ θ₃ : ℝ) :
 theorem hea4_depth (θ₀ θ₁ θ₂ θ₃ : ℝ) :
     hea4 θ₀ θ₁ θ₂ θ₃ ⊨ .maxDepth 4 := by
   simp [satisfies, depth, scheduleDepth, hea4, gateQubits]
+  intro b; fin_cases b <;> decide
 
 /-- The CNOT entangling chain used by each HEA layer. -/
 def cnotChain4 : QCircuit 4 :=

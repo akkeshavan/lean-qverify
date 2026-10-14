@@ -26,8 +26,15 @@ htmlcov/
 .env
 *.qasm.tmp
 
-# Paper (unpublished draft — excluded from public repo)
+# Agent context / planning files (contain author identity)
+AGENT.md
+POPL_PLDI_PLAN.md
+lit-summary.md
+
+# Paper drafts (unpublished — excluded from public repo)
 paper/
+paper-itp/
+paper-tacas-1/
 
 # Paper build artifacts (kept in case paper/ is re-included)
 *.aux
