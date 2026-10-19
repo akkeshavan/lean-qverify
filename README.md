@@ -70,6 +70,14 @@ Lane A gives fast automated feedback. Lane B gives a kernel-checked guarantee. O
 
 ---
 
+## Artifact evaluation
+
+To independently verify all 25 proved theorems, see
+**[`theorems/README.md`](theorems/README.md)** for step-by-step build
+instructions, expected output, and a sorry audit.
+
+---
+
 ## Proved theorems
 
 All of the following are kernel-checked — no `sorry` anywhere in the proof tree:
