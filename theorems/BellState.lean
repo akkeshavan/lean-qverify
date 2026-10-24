@@ -33,3 +33,19 @@ example : bellPrep ⊨ .measurementProb QState.ket00 0 false (1/2) :=
 --     with probability ≥ 1/2.
 example : bellPrep ⊨ .measurementProb QState.ket00 0 true (1/2) :=
   bellPrep_entangled_one
+
+-- T5b: Joint measurement: P(|00⟩) ≥ 1/2 for the Bell state.
+--      Uses jointMeasProb which captures the joint distribution of both qubits.
+example : bellPrep ⊨ .jointMeasProb QState.ket00 ⟨0, by decide⟩ (1/2) :=
+  bellPrep_joint_ket00
+
+-- T5c: Joint measurement: P(|11⟩) ≥ 1/2 for the Bell state.
+example : bellPrep ⊨ .jointMeasProb QState.ket00 ⟨3, by decide⟩ (1/2) :=
+  bellPrep_joint_ket11
+
+-- T5d: The Bell state has zero probability of anti-correlated outcomes.
+--      P(|01⟩) = 0 and P(|10⟩) = 0.
+example : bellPrep ⊨ .jointMeasProb QState.ket00 ⟨1, by decide⟩ 0 :=
+  bellPrep_joint_ket01_zero
+example : bellPrep ⊨ .jointMeasProb QState.ket00 ⟨2, by decide⟩ 0 :=
+  bellPrep_joint_ket10_zero

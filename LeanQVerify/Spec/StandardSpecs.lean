@@ -55,7 +55,6 @@ theorem bellPrep_oneCNOT :
 theorem bellPrep_depth :
     bellPrep ⊨ .maxDepth 2 := by
   simp [satisfies, depth, scheduleDepth, bellPrep, gateQubits]
-  intro b; fin_cases b <;> decide
 
 -- ---------------------------------------------------------------------------
 -- Bell state measurement probability
@@ -76,13 +75,16 @@ theorem bellPrep_applies_to_ket00 :
     bellPrep.applyTo QState.ket00.val = bellOutput := by
   ext k; fin_cases k
   all_goals simp only [applyTo, bellPrep, denote, denote_empty, Gate.matrix,
-    Matrix.mul_one, Matrix.mulVec, Matrix.dotProduct, bellOutput, QState.ket00]
+    Matrix.mul_one, Matrix.mulVec, dotProduct, bellOutput, QState.ket00]
   all_goals simp (config := { decide := true }) [Fin.sum_univ_four, Matrix.mul_apply,
     embedGate1, embedCNOT, natBit, H_mat,
     Matrix.cons_val_zero, Matrix.cons_val_one, Matrix.head_cons, Matrix.cons_val',
     Nat.testBit, Fin.val, mul_zero, zero_mul, zero_add, add_zero, mul_one, one_mul]
 
-/-- Measuring qubit 0 of the Bell state gives 0 with probability 1/2. -/
+/-- Measuring qubit 0 of the Bell state gives 0 with probability ≥ 1/2.
+    Note: this is a marginal probability bound on a single qubit, not an entanglement
+    certificate.  A separable mixed state could satisfy this same bound.  For correlation
+    properties, see `bellPrep_joint_ket00`/`bellPrep_joint_ket11`. -/
 theorem bellPrep_entangled :
     bellPrep ⊨ .measurementProb QState.ket00 0 false (1/2) := by
   simp only [satisfies, measProb]
@@ -103,6 +105,53 @@ theorem bellPrep_entangled_one :
   simp (config := { decide := true }) only [Fin.val, Nat.testBit, bellOutput]
   norm_num [normSq_ofReal, Real.sq_sqrt (show (0:ℝ) ≤ 2 by norm_num),
             Real.sqrt_ne_zero'.mpr (show (0:ℝ) < 2 by norm_num)]
+
+-- ---------------------------------------------------------------------------
+-- Bell joint measurement (joint distribution for entangled states)
+-- ---------------------------------------------------------------------------
+
+/-- The Bell state has exactly 1/2 probability of measuring the |00⟩ outcome.
+    This uses `jointMeasProb` which expresses joint two-qubit distributions,
+    unlike `measurementProb` which gives single-qubit marginals. -/
+theorem bellPrep_joint_ket00 :
+    bellPrep ⊨ .jointMeasProb QState.ket00 ⟨0, by decide⟩ (1/2) := by
+  simp only [satisfies]
+  rw [bellPrep_applies_to_ket00]
+  show (1/2 : ℝ) ≤ normSq (bellOutput ⟨0, by decide⟩)
+  simp only [bellOutput, Fin.val]
+  norm_num [normSq_ofReal, Real.sq_sqrt (show (0:ℝ) ≤ 2 by norm_num),
+            Real.sqrt_ne_zero'.mpr (show (0:ℝ) < 2 by norm_num)]
+
+/-- The Bell state has exactly 1/2 probability of measuring the |11⟩ outcome. -/
+theorem bellPrep_joint_ket11 :
+    bellPrep ⊨ .jointMeasProb QState.ket00 ⟨3, by decide⟩ (1/2) := by
+  simp only [satisfies]
+  rw [bellPrep_applies_to_ket00]
+  show (1/2 : ℝ) ≤ normSq (bellOutput ⟨3, by decide⟩)
+  simp only [bellOutput, Fin.val]
+  norm_num [normSq_ofReal, Real.sq_sqrt (show (0:ℝ) ≤ 2 by norm_num),
+            Real.sqrt_ne_zero'.mpr (show (0:ℝ) < 2 by norm_num)]
+
+/-- The Bell state has zero probability of measuring |01⟩.
+    Note: `jointMeasProb ... 0` states a lower bound of 0, which is vacuously true for
+    any circuit since probabilities are non-negative.  The real content here is that
+    `bellPrep_applies_to_ket00` establishes the exact amplitude at index 1 is 0; this
+    theorem packages that as a CircuitSpec satisfaction statement.
+    For the direct statement see: `normSq (bellPrep.applyTo ket00.val ⟨1, _⟩) = 0`. -/
+theorem bellPrep_joint_ket01_zero :
+    bellPrep ⊨ .jointMeasProb QState.ket00 ⟨1, by decide⟩ 0 := by
+  simp only [satisfies]
+  rw [bellPrep_applies_to_ket00]
+  simp [bellOutput, Fin.val]
+
+/-- The Bell state has zero probability of measuring |10⟩.
+    Same vacuity note as `bellPrep_joint_ket01_zero`: the bound 0 is non-vacuous
+    only because `bellPrep_applies_to_ket00` establishes the exact amplitude is 0. -/
+theorem bellPrep_joint_ket10_zero :
+    bellPrep ⊨ .jointMeasProb QState.ket00 ⟨2, by decide⟩ 0 := by
+  simp only [satisfies]
+  rw [bellPrep_applies_to_ket00]
+  simp [bellOutput, Fin.val]
 
 -- ---------------------------------------------------------------------------
 -- GHZ state
@@ -137,9 +186,9 @@ def teleportPrep : QCircuit 3 :=
   .empty
 
 /-- Teleportation circuit has parallel depth 4.
-    Step 1: H(1) and H(0) can run simultaneously.
-    Step 2: CNOT(1,2) and CNOT(0,1) share qubit 1 — sequential.
-    Actual depth depends on scheduling; conservative bound is 4. -/
+    All four gates are sequential: H(1)@1 → CNOT(1,2)@2 → CNOT(0,1)@3 → H(0)@4.
+    Each gate touches a qubit last used by its predecessor, so no parallelism is
+    possible and depth equals gate count. -/
 theorem teleportPrep_depth :
     teleportPrep ⊨ .maxDepth 4 := by
   simp [satisfies, depth, scheduleDepth, teleportPrep, gateQubits]
@@ -180,10 +229,10 @@ private theorem groverStep2_applies_to_ket00 :
       QState.ket00.val = groverOutput := by
   ext k; fin_cases k
   all_goals simp only [applyTo, groverStep2, groverOracle2, groverDiffusion2,
-    QCircuit.ofGate, denote_append, denote, denote_empty, Gate.matrix,
+    QCircuit.ofGate, denote_seq, denote, denote_empty, Gate.matrix,
     Matrix.mul_one, Matrix.one_mul, groverOutput, QState.ket00]
   all_goals simp only [← Matrix.mulVec_mulVec]
-  all_goals simp (config := { decide := true }) [Matrix.mulVec, Matrix.dotProduct,
+  all_goals simp (config := { decide := true }) [Matrix.mulVec, dotProduct,
     Fin.sum_univ_four, embedGate1, embedCZ, natBit, H_mat, X_mat,
     Matrix.cons_val_zero, Matrix.cons_val_one, Matrix.head_cons,
     Matrix.cons_val', Nat.testBit, Fin.val,

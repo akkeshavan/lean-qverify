@@ -29,6 +29,18 @@ inductive Gate (n : ℕ) : Type where
   | SWAP : Fin n → Fin n → Gate n     -- SWAP
   -- Three-qubit gate
   | CCX  : Fin n → Fin n → Fin n → Gate n  -- Toffoli
+  -- Universal single-qubit gate
+  | U3   : ℝ → ℝ → ℝ → Fin n → Gate n     -- U3(θ,φ,λ)
+  -- Controlled single-qubit gates
+  | CH   : Fin n → Fin n → Gate n           -- Controlled-H
+  | CY   : Fin n → Fin n → Gate n           -- Controlled-Y
+  -- Controlled rotation gates
+  | CP   : ℝ → Fin n → Fin n → Gate n      -- Controlled-phase(θ)
+  | CRZ  : ℝ → Fin n → Fin n → Gate n      -- Controlled-Rz(θ)
+  -- Two-qubit rotation gates
+  | RZZ  : ℝ → Fin n → Fin n → Gate n      -- Rzz(θ) = exp(-iθ/2·Z⊗Z)
+  | RXX  : ℝ → Fin n → Fin n → Gate n      -- Rxx(θ) = exp(-iθ/2·X⊗X)
+  | RYY  : ℝ → Fin n → Fin n → Gate n      -- Ryy(θ) = exp(-iθ/2·Y⊗Y)
 
 namespace Gate
 
@@ -47,6 +59,14 @@ noncomputable def matrix {n : ℕ} : Gate n → Matrix (Fin (2 ^ n)) (Fin (2 ^ n
   | .CZ  c t   => embedCZ   n c t
   | .SWAP i j  => embedSWAP n i j
   | .CCX c1 c2 t => embedCCX n c1 c2 t
+  | .U3 θ φ lam i => embedGate1 n i (U3_mat θ φ lam)
+  | .CH  c t   => embedControlled1 n c t H_mat
+  | .CY  c t   => embedControlled1 n c t Y_mat
+  | .CP  θ c t => embedCP  n c t θ
+  | .CRZ θ c t => embedCRZ n c t θ
+  | .RZZ θ i j => embedRZZ n i j θ
+  | .RXX θ i j => embedRXX n i j θ
+  | .RYY θ i j => embedRYY n i j θ
 
 /-- Every gate matrix is its own inverse for self-inverse gates. -/
 theorem X_self_inverse (n : ℕ) (i : Fin n) :

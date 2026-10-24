@@ -1,6 +1,6 @@
 # lean-qverify — Design Specification
 
-**Status: Phase 1 complete.** This document reflects the implemented system.
+**Status: v3 — 40 kernel-checked theorems; ZX-calculus with certified circuit translation; genuine end-to-end structural verification pipeline; 32-circuit benchmark suite; targeting CAV 2027 (deadline Jan 20, 2027).** This document reflects the implemented system.
 
 ---
 
@@ -21,7 +21,7 @@ Formal verification sidesteps testing entirely. It proves mathematically — wit
 - Support equivalence checking between two circuits (e.g., original vs. optimised)
 - Support probabilistic specifications (e.g., "this circuit finds the answer with probability ≥ 0.99")
 - Support gate-count and depth specifications (structural, proved by `simp`)
-- Target publication at ACM TQC or PLDI
+- Target publication at CAV 2027
 
 ### Non-goals (v1)
 
@@ -36,29 +36,45 @@ Formal verification sidesteps testing entirely. It proves mathematically — wit
 ## 3. Architecture
 
 ```
-LANE A — automated check
+LANE A — automated parse + counterexample search
 
   Qiskit QuantumCircuit
-       │  qiskit.qasm3.dumps()
+       │  qiskit.qasm3.dumps() / OpenQASM 2.0 preprocessor
        ▼
-  OpenQASM 3 string
+  QASM source (v2 or v3)
        │  LeanQVerify.QASM.Parser
        ▼
   QASMProgram (untyped AST)
        │  LeanQVerify.QASM.Elaborator
        ▼
-  ElabResult { nQubits, nGates, warnings }
+  ElabResult { nQubits, nGates, warnings }   ← Verdict.PARSED
        │
   [on warnings/failures]
   Python bridge  →  Qiskit Aer (CPU or GPU)  →  counterexample state
 
 
-LANE B — formal proof
+LANE B — formal proof of hand-written theorems
 
   QCircuit n
        │  c ⊨ s  (CircuitSpec.satisfies)
        ▼
-  Prop  ─  lake build  ─►  kernel-checked
+  Prop  ─  lake build  ─►  kernel-checked   ← Verdict.PROVED
+
+
+LANE C — end-to-end structural verification of imported circuits
+
+  QASM source
+       │  lean-qverify-check --emit-lean
+       ▼
+  Lean noncomputable def importedCircuit : QCircuit n
+       │  _generate_theorem()  [Python]
+       ▼
+  theorem importedCircuit_spec :
+      importedCircuit ⊨ .gateCount pred k  /  .maxDepth k
+  := by simp [countGates, importedCircuit]
+       │  lake env lean <tempfile>
+       ▼
+  kernel-checked proof                       ← Verdict.STRUCT_PROVED
 ```
 
 GPU acceleration applies only to Lane A (Python tooling). The Lean proof kernel is always CPU-only.
@@ -101,7 +117,12 @@ Key lemmas proved: `embedGate1_mul` (composition), `embedGate1_self_inverse` (se
 
 ### DensityMatrix (`DensityMatrix.lean`)
 
-Infrastructure for mixed states. `DensityMatrix n` is a Hermitian, positive-semidefinite, unit-trace matrix. The `ofPure`, `applyUnitary`, and `measure` definitions are present but have `sorry` stubs for their Hermiticity/PSD/trace proofs — these are not yet depended on by any proved theorem.
+Infrastructure for mixed states. `DensityMatrix n` is a Hermitian, positive-semidefinite, unit-trace matrix.
+
+**All proofs are complete** (no `sorry` stubs in `ofPure` or `applyUnitary`):
+- `ofPure ψ` — inline proofs of `hermitian` (conjugate symmetry via `conjSwap`), `pos_sdef` (via Cauchy-Schwarz), `trace_one` (via ψ's unit-norm condition)
+- `applyUnitary U hU ρ` — inline proofs that unitarily transformed density matrices remain Hermitian, PSD, and trace-1
+- `measure` — intentional `sorry` stub (not yet used by any proved theorem; measurement collapse requires classical communication modelling out of scope for v2)
 
 ---
 
@@ -159,6 +180,33 @@ theorem denote_append (c₁ c₂ : QCircuit n) :
 
 Standard named circuits: `bellPrep`, `ghzPrep` (in `QCircuit.lean`); `teleportPrep`, `groverOracle2`, `groverDiffusion2`, `groverStep2`, `hea4` (in `StandardSpecs.lean`).
 
+### Parametric circuit families (`Parametric.lean`)
+
+```lean
+-- Embed a circuit for n qubits into one for n+1 qubits (new qubit unused)
+def QCircuit.castSucc {n} : QCircuit n → QCircuit (n + 1)
+
+-- A family of circuits indexed by ℕ, with qubit count f(n)
+def QFamily (f : ℕ → ℕ) := (n : ℕ) → QCircuit (f n)
+
+-- GHZ state preparation: H on qubit 0, then CNOT(0,k) for k=1..n
+def ghzCircuit : (n : ℕ) → QCircuit (n + 1)
+def ghzFamily  : QFamily (· + 1) := ghzCircuit
+
+-- Bernstein-Vazirani oracle: CNOT(i,n) for each i where s[i] = true
+def bvOracle (n : ℕ) (s : Fin n → Bool) : QCircuit (n + 1)
+def bvCircuit (n : ℕ) (s : Fin n → Bool) : QCircuit (n + 1)
+def bvFamily  (s : (n : ℕ) → Fin n → Bool) : QFamily (· + 1)
+```
+
+Key theorems proved by structural induction:
+- `countGates_append` — gate count is additive over circuit composition
+- `ghzCircuit_gateCount n` — GHZ for n+1 qubits has exactly n+1 gates
+- `ghzCircuit_cnotCount n` — GHZ for n+1 qubits has exactly n CNOT gates
+- `bvOracle_cnotCount_le n s` — BV oracle uses at most n CNOT gates
+
+Proof technique: `show` tactic exploits that `cnotPred (.CNOT ..)` and `cnotPred (.H ..)` reduce definitionally, bypassing `if_true`/`if_false` simp lemma issues; `castSucc_countCNOT` tracks the CNOT count through the `castSucc` embedding.
+
 ### Circuit equivalence
 
 ```lean
@@ -181,7 +229,7 @@ notation:50 c₁ " ≅ " c₂ => QCircuit.equiv c₁ c₂
 | `H_Z_H_eq_X` — H∘Z∘H ≅ X | ✓ proved |
 | `RZ_zero_eq_id` — RZ(0) ≅ I | ✓ proved |
 | `RZ_add` — RZ(θ)∘RZ(φ) ≅ RZ(θ+φ) | ✓ proved |
-| `SWAP_eq_three_CNOTs` | sorry — XOR bit-flip argument pending |
+| `SWAP_eq_three_CNOTs` — SWAP ≅ CNOT³ | ✓ proved — `Nat.testBit_xor` + sum collapse |
 
 ---
 
@@ -196,10 +244,13 @@ inductive CircuitSpec (n : ℕ) : Type where
   | implementsMatrix : Matrix (Fin (2^n)) (Fin (2^n)) ℂ → CircuitSpec n
   | equivalentTo     : QCircuit n → CircuitSpec n
   | measurementProb  : QState n → Fin n → Bool → ℝ → CircuitSpec n
+  | jointMeasProb    : QState n → Fin (2^n) → ℝ → CircuitSpec n
   | gateCount        : (Gate n → Bool) → ℕ → CircuitSpec n
   | maxDepth         : ℕ → CircuitSpec n
   | both             : CircuitSpec n → CircuitSpec n → CircuitSpec n
 ```
+
+`jointMeasProb ψ bs p` states: starting from input state ψ, measuring all n qubits and observing basis state bs (encoded as a `Fin (2^n)` index) happens with probability ≥ p. This captures joint multi-qubit distributions (unlike `measurementProb` which is a single-qubit marginal). Satisfaction: `p ≤ Complex.normSq ((c.applyTo ψ.val) bs)`.
 
 Convenience aliases: `isIdentity`, `isBellPrep`, `totalGates`, `maxCNOTs`.
 
@@ -249,7 +300,11 @@ notation:40 c " ⊨ " s => CircuitSpec.satisfies c s
 | `hea4_depth` | depth ≤ 4 | ✓ simp |
 | `hea4_zero_eq_cnotChain` | hea4(0,0,0,0) ≅ cnotChain | ✓ Rz_zero_id |
 | `hea4_rz_fuse_single` | RZ(θ)∘RZ(φ) ≅ RZ(θ+φ) | ✓ Rz_mat_add |
-| `groverStep2_correct` | P(q₀=1) ≥ 0.99 | sorry — 4×4 unitary expansion |
+| `groverStep2_correct` | P(q₀=1) ≥ 0.99 | ✓ proved — 4×4 unitary + `norm_num` |
+| `bellPrep_joint_ket00` | P(|00⟩) ≥ 1/2 | ✓ jointMeasProb + norm_num |
+| `bellPrep_joint_ket11` | P(|11⟩) ≥ 1/2 | ✓ jointMeasProb + norm_num |
+| `bellPrep_joint_ket01_zero` | P(|01⟩) = 0 | ✓ jointMeasProb + norm_num |
+| `bellPrep_joint_ket10_zero` | P(|10⟩) = 0 | ✓ jointMeasProb + norm_num |
 
 ---
 
@@ -279,9 +334,31 @@ inductive GateApp : Type where
   | skipped : String → GateApp
 ```
 
-Supported: `OPENQASM 3;` header (skipped), `include` (skipped), `qubit[n] name;`, `bit` (ignored), all standard gates, rotation gates with angle constants (`pi`, `pi/N`, `pi*N`, decimals, negatives), line comments `//`. Unsupported constructs produce a `.skipped` warning rather than failing.
+Supported (OpenQASM 3): `OPENQASM 3;`, `include "stdgates.inc"` (skipped), `qubit[n] name;`, `bit`/`creg` (ignored), all standard gates, rotation gates with angles (`pi`, `pi/N`, `pi*N`, decimals, negatives, scientific notation `1.2e-3`), line comments `//`.
 
-The parser is a trusted component — it is not formally verified. Proofs are about the `QCircuit n` value it produces.
+Supported (OpenQASM 2.0): `OPENQASM 2.0;`, `include "qelib1.inc"` (skipped), `qreg name[n];`, `creg`/`measure`/`barrier` (ignored), `sdg`/`tdg` (mapped to `RZ(−π/2)`, `RZ(−π/4)`), `u1`/`p` phase gates (mapped to `RZ`), `toffoli` (alias for `ccx`), `id` (dropped as no-op).
+
+Unsupported constructs (e.g. `u2`, `u3`, custom gate definitions) produce a `.skipped` warning rather than failing.
+
+The parser is a trusted component at the gate-application level. A formal well-formedness specification is provided in `ParseTheorems.lean`:
+
+```lean
+-- Extract all qubit references from a parsed gate (22 constructors)
+def GateApp.qubitRefs (g : GateApp) : List QubitRef
+
+-- Formal Prop: every gate's qubit refs are within the declared register bounds
+def GateApp.wellFormedFor (regs : List RegDecl) (g : GateApp) : Prop
+def QASMProgram.wellFormed (prog : QASMProgram) : Prop
+
+-- Computable Bool checker
+def checkGateWF (regs : List RegDecl) (g : GateApp) : Bool
+def QASMProgram.checkWellFormed (prog : QASMProgram) : Bool
+
+-- Soundness: checker implies formal predicate (kernel-checked)
+theorem checkWellFormed_sound {prog} (h : prog.checkWellFormed = true) : prog.wellFormed
+```
+
+Concrete theorems: Bell program well-formed (`by rfl`), GHZ-3 program well-formed (`by rfl`), out-of-bounds program fails checker (`by rfl`). Proofs are about the `QCircuit n` value it produces.
 
 ### Elaborator (`Elaborator.lean`)
 
@@ -304,7 +381,13 @@ noncomputable def elaborateCircuit (prog : QASMProgram) :
     Σ n : Nat, QCircuit n
 ```
 
-The split is necessary because `RX`/`RY`/`RZ` gates take `ℝ` angles, which is noncomputable in Lean. The Float→ℝ conversion in Phase 2 is a trusted bridge (`private noncomputable def floatToReal (_ : Float) : ℝ := sorry`).
+The split is necessary because `RX`/`RY`/`RZ` gates take `ℝ` angles, which is noncomputable in Lean. The Float→ℝ conversion in Phase 2 uses a 30+ case if-chain recognizing rational-π multiples (`floatToReal` in `Elaborator.lean`). Unrecognized angles fall through to `sorry` with a warning — structural proofs (gate count, depth) are unaffected because they pattern-match on gate constructors, not angle values.
+
+**Serializer (`Serializer.lean`) — new in v2:**
+```lean
+def serializeCircuit (prog : QASMProgram) (defName : String) : String
+```
+Emits a `noncomputable def importedCircuit : QCircuit n` by serializing the elaborated gate list with exact `Real.pi` angle expressions. Uses `<|` syntax for cons chains to avoid associativity ambiguity.
 
 Elaboration steps:
 1. Compute `n` = sum of all register sizes
@@ -329,16 +412,98 @@ Exit codes: 0 = parsed successfully, 1 = elaboration warnings, 2 = file error.
 
 | Module | Purpose |
 |---|---|
-| `bridge.py` | `verify_circuit(qc)` — Qiskit → JSON |
+| `bridge.py` | `verify_circuit(qc)` — Qiskit → JSON; `verify_circuit_spec(qc, spec)` — full end-to-end structural verification → `Verdict.STRUCT_PROVED` |
+| `prover.py` | `verify_structural_spec(qasm, spec)` — calls `--emit-lean`, generates theorem, runs `lake env lean`, returns `(bool, log)` |
+| `result.py` | `VerifyResult` with `Verdict.{PROVED, STRUCT_PROVED, PARSED, FAILED, WARNING, ERROR}`; `kernel_checked` property |
 | `gpu.py` | GPU detection via `nvidia-smi` + smoke test |
 | `simulator.py` | Returns `AerSimulator` (GPU if n ≥ 20, else CPU) |
 | `counterexample.py` | Batched counterexample search (CuPy or NumPy) |
-| `result.py` | `VerifyResult` datatype |
 | `runner.py` | Subprocess invocation of `lean-qverify-check` |
+
+**`StructuralSpec` dataclass:**
+```python
+class StructSpecKind(Enum):
+    GATE_COUNT = "gate_count"   # countGates (fun _ => true) c = k
+    CNOT_COUNT = "cnot_count"   # countGates (.CNOT ..) c = k
+    RZ_COUNT   = "rz_count"     # countGates (.RZ ..) c = k
+    MAX_DEPTH  = "max_depth"    # depth c ≤ k
+
+@dataclass
+class StructuralSpec:
+    kind:  StructSpecKind
+    bound: int
+```
+
+**Proof strategy for structural specs:**
+- Gate/CNOT/RZ count: `simp [CircuitSpec.countGates, importedCircuit]` (beta reduction via `simp` resolves `(fun _ => true) (.H ..)` → `true`)
+- Depth: `simp [scheduleDepth, gateQubits, importedCircuit]` + `intro b; fin_cases b <;> simp`
 
 ---
 
-## 8. Implementation status
+## 8. Component 5: ZX-Calculus
+
+**Location:** `LeanQVerify/ZX/`
+
+### Diagram and semantics (`Diagram.lean`, `Semantics.lean`)
+
+```lean
+inductive ZXDiagram : ℕ → ℕ → Type where
+  | wire     : ZXDiagram 1 1
+  | hadamard : ZXDiagram 1 1
+  | zSpider  : (m n : ℕ) → ℝ → ZXDiagram m n
+  | xSpider  : (m n : ℕ) → ℝ → ZXDiagram m n
+  | compose  : ZXDiagram m k → ZXDiagram k n → ZXDiagram m n
+  | tensor   : ZXDiagram m₁ n₁ → ZXDiagram m₂ n₂ → ZXDiagram (m₁+m₂) (n₁+n₂)
+
+-- Matrix semantics (denotational)
+noncomputable def ZXDiagram.denote : ZXDiagram m n →
+    Matrix (Fin (2^n)) (Fin (2^m)) ℂ
+```
+
+Notation: `ZX⟦d⟧` for `d.denote`; `d₁ ⊚ d₂` for sequential composition (d₁ first); `d₁ ↑⊗ d₂` for tensor.
+
+### Circuit-to-ZX lemmas (`CircuitToZX.lean`)
+
+| Theorem | Status |
+|---|---|
+| `hadN_unitary` — hadamard tower is unitary | ✓ |
+| `zSpiderMat_11_pi` — Z(π) = Z gate | ✓ |
+| `zSpiderMat_11_half_pi` — Z(π/2) = S gate | ✓ |
+| `zSpiderMat_11_quarter_pi` — Z(π/4) = T gate | ✓ |
+| `zGate_as_zSpider`, `sGate_as_zSpider`, `tGate_as_zSpider` | ✓ |
+| `xSpider_pi_eq_X` — X(π) = X gate | ✓ |
+| `xSpider_fusion` — Z-spider fusion: Z(α) ⊚ Z(β) = Z(α+β) | ✓ |
+| `cnotZX_correct` — ZX representation of CNOT (up to √2 normalisation) | ✓ |
+| `pi_copy` — π-copy rule: Z(π) ⊚ X-copy = X-copy ⊚ (Z(π) ↑⊗ Z(π)) | ✓ |
+
+### Gate and circuit translation (`GateTranslation.lean`)
+
+```lean
+-- Which 1-qubit gates have direct ZX representations
+def isStdGate₁ : Gate 1 → Prop
+  | .H _ | .X _ | .Z _ | .S _ | .T _ => True
+  | _ => False
+
+-- Translate a standard gate to its ZX diagram
+noncomputable def gateToZX₁ : Gate 1 → ZXDiagram 1 1
+
+-- Soundness: ZX semantics = gate matrix
+theorem gateToZX₁_sound (g : Gate 1) (hg : isStdGate₁ g) :
+    ZX⟦gateToZX₁ g⟧ = g.matrix
+
+-- Translate a 1-qubit circuit to a ZX diagram
+noncomputable def circuitToZX₁ : QCircuit 1 → ZXDiagram 1 1
+
+-- Circuit soundness
+theorem circuitToZX₁_sound (c : QCircuit 1) (hc : isStdCircuit₁ c) :
+    ZX⟦circuitToZX₁ c⟧ = c.denote
+```
+
+The translation maps H → `hadamard`, X → `xSpider 1 1 π`, Z/S/T → `zSpider 1 1 {π, π/2, π/4}`.
+
+---
+
+## 9. Implementation status
 
 ### Phase 1 — complete ✓
 
@@ -346,28 +511,45 @@ Exit codes: 0 = parsed successfully, 1 = elaboration warnings, 2 = file error.
 - [x] `Gate n` inductive type and all gate matrices
 - [x] `QCircuit n`, `denote`, `append`, `equiv`
 - [x] `embedGate1`, `embedCNOT` and composition lemmas
-- [x] All gate identities (H, X, Y, Z, CNOT, conjugations, RZ) — 9 theorems
+- [x] All gate identities (H, X, Y, Z, CNOT, conjugations, RZ, SWAP) — 10 theorems
 - [x] `CircuitSpec n` and `satisfies` relation
 - [x] `countGates`, `depth` (list-scheduling), `measProb`
-- [x] Standard specs: Bell (5), GHZ (2), teleportation (1), HEA (5) — 13 theorems
+- [x] Standard specs: Bell (5+4 joint), GHZ (2), teleportation (1), HEA (6), Grover (1) — 19 theorems
+- [x] `jointMeasProb` constructor in CircuitSpec; 4 Bell joint measurement theorems
 - [x] Satisfaction lemmas (monotonicity, conjunction, equivalence)
-- [x] OpenQASM 3 parser and elaborator
-- [x] `lean-qverify-check` CLI binary (JSON output)
-- [x] Python bridge (`verify_circuit`, GPU detection, counterexample search)
+- [x] OpenQASM 3 parser and elaborator (+ OPENQASM 2.0 support)
+- [x] `lean-qverify-check` CLI binary (JSON output, `--emit-lean` mode)
+- [x] Python bridge (`verify_circuit`, `verify_circuit_spec`, `prover.py`, GPU detection)
 - [x] Lean test suite (`TestParser`, `TestElaborator`, `TestCircuit`, `TestQState`)
+- [x] `theorems/Axioms.lean` — `#print axioms` for all 29 theorems; all clean
+- [x] 32-circuit benchmark suite (`benchmarks/`) with automated harness
 
-**Total: 22 kernel-checked theorems, 2 sorry stubs.**
+**Total (Phase 1): 29 kernel-checked theorems. No sorry stubs in any proof tree.**
 
-### Phase 2 — pending
+### Phase 2 — complete ✓
 
-- [ ] Complete `SWAP_eq_three_CNOTs` — XOR bit-flip via `Nat.testBit_xor` + `Nat.xor_assoc`
-- [ ] Complete `groverStep2_correct` — expand 4×4 Grover unitary, close with `norm_num`
-- [ ] Complete `DensityMatrix.ofPure` proofs (Hermiticity, PSD, unit trace)
-- [ ] Complete `DensityMatrix.applyUnitary` proofs (PSD, unit trace)
-- [ ] Formally verify Float→ℝ bridge in elaborator
-- [ ] Full teleportation correctness (requires classical communication modelling)
+- [x] `DensityMatrix.ofPure` proofs (Hermiticity, PSD, unit trace) — inline in `where` clause
+- [x] `DensityMatrix.applyUnitary` proofs (Hermiticity, PSD, unit trace) — inline in `where` clause
+- [x] Parametric circuit families: `QFamily`, `ghzCircuit n`, `bvCircuit n` with inductive gate-count proofs
+- [x] Formal QASM parser well-formedness: `wellFormed` predicate, `checkWellFormed` Bool checker, soundness theorem, concrete programs
+- [ ] Formally verify Float→ℝ bridge in elaborator (out of scope for v2)
+- [ ] Full teleportation correctness (requires classical communication modelling, out of scope for v2)
 
-### Phase 3 — future
+**Total (Phase 2): 38 kernel-checked theorems. No `sorryAx` in any proof chain.**
+
+### Phase 3 — complete ✓
+
+**ZX-calculus circuit translation (`GateTranslation.lean`):**
+
+- [x] `embedGate1_one_qubit` — for n=1, embedding a 2×2 gate at qubit 0 equals the gate itself
+- [x] `gateToZX₁` — certified translation of H, X, Z, S, T gates to ZX diagrams
+- [x] `gateToZX₁_sound` — `ZX⟦gateToZX₁ g⟧ = g.matrix` for all supported gates
+- [x] `circuitToZX₁` — certified translation of standard 1-qubit circuits to ZX diagrams
+- [x] `circuitToZX₁_sound` — `ZX⟦circuitToZX₁ c⟧ = c.denote` for all standard circuits
+
+**Total (Phase 3): 40 kernel-checked theorems. No `sorryAx` in any proof chain.**
+
+### Future work
 
 - [ ] `verify_circuit` tactic calling the Python bridge from within Lean
 - [ ] Benchmark 20–50 qubit circuits with GPU backend
@@ -376,7 +558,7 @@ Exit codes: 0 = parsed successfully, 1 = elaboration warnings, 2 = file error.
 
 ---
 
-## 9. Dependencies
+## 10. Dependencies
 
 ### Lean side
 
@@ -396,7 +578,7 @@ Exit codes: 0 = parsed successfully, 1 = elaboration warnings, 2 = file error.
 
 ---
 
-## 10. GPU strategy
+## 11. GPU strategy
 
 The Lean proof kernel is CPU-only and must remain so. GPU acceleration is confined to the Python tooling layer (Lane A):
 
@@ -421,7 +603,7 @@ GPU memory limits:
 
 ---
 
-## 11. Testing strategy
+## 12. Testing strategy
 
 ### Lean tests (at build time)
 

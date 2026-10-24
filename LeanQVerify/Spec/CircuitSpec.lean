@@ -29,6 +29,18 @@ inductive CircuitSpec (n : ℕ) : Type where
       → ℝ                -- probability lower bound
       → CircuitSpec n
 
+  /-- Starting from input state ψ, measuring all n qubits simultaneously and
+      obtaining the bitstring `bs` (a basis index in {0,..,2^n−1}) happens with
+      probability at least p.  This captures joint distributions and is needed
+      to state properties of entangled states such as Bell and GHZ:
+        P(|00⟩) ≥ 1/2,  P(|11⟩) ≥ 1/2  for the Bell state.
+      The measurement probability of a single basis outcome is |⟨bs|ψ_out⟩|². -/
+  | jointMeasProb :
+      QState n           -- input state
+      → Fin (2 ^ n)      -- target basis state (as a computational-basis index)
+      → ℝ                -- probability lower bound
+      → CircuitSpec n
+
   /-- The number of gates satisfying pred is at most k. -/
   | gateCount : (Gate n → Bool) → ℕ → CircuitSpec n
 
@@ -60,6 +72,10 @@ def totalGates {n : ℕ} (k : ℕ) : CircuitSpec n :=
 def maxCNOTs {n : ℕ} (k : ℕ) : CircuitSpec n :=
   .gateCount (fun g => match g with | .CNOT .. => true | _ => false) k
 
+/-- Number of RZ gates is at most k. -/
+def maxRZGates {n : ℕ} (k : ℕ) : CircuitSpec n :=
+  .gateCount (fun g => match g with | .RZ .. => true | _ => false) k
+
 -- ---------------------------------------------------------------------------
 -- Satisfaction relation
 -- ---------------------------------------------------------------------------
@@ -83,10 +99,19 @@ def gateQubits {n : ℕ} : Gate n → Finset (Fin n)
   | .CNOT c t   => {c, t}
   | .CZ  c t    => {c, t}
   | .SWAP i j   => {i, j}
-  | .CCX c1 c2 t => {c1, c2, t}
+  | .CCX c1 c2 t  => {c1, c2, t}
+  | .U3 _ _ _ i   => {i}
+  | .CH  c t      => {c, t}
+  | .CY  c t      => {c, t}
+  | .CP  _ c t    => {c, t}
+  | .CRZ _ c t    => {c, t}
+  | .RZZ _ i j    => {i, j}
+  | .RXX _ i j    => {i, j}
+  | .RYY _ i j    => {i, j}
 
-/-- Track the earliest-available time for each qubit through a circuit.
-    This is the inner loop of the list-scheduling depth algorithm. -/
+/-- Inner loop of the list-scheduling depth algorithm.
+    `ready : Fin n → ℕ` gives the earliest-available time per qubit.
+    Exposed as proof infrastructure: depth theorems use `simp [depth, scheduleDepth, gateQubits]`. -/
 def scheduleDepth {n : ℕ} : QCircuit n → (Fin n → ℕ) → ℕ
   | .empty,     ready => Finset.sup Finset.univ ready
   | .cons g c', ready =>
@@ -117,6 +142,7 @@ noncomputable def satisfies {n : ℕ} (c : QCircuit n) : CircuitSpec n → Prop
   | .implementsMatrix U       => c.denote = U
   | .equivalentTo c'          => c ≅ c'
   | .measurementProb ψ i b p  => p ≤ measProb c ψ i b
+  | .jointMeasProb ψ bs p     => p ≤ Complex.normSq ((c.applyTo ψ.val) bs)
   | .gateCount pred k         => countGates pred c ≤ k
   | .maxDepth k               => depth c ≤ k
   | .both s₁ s₂               => satisfies c s₁ ∧ satisfies c s₂

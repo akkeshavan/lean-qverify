@@ -29,8 +29,8 @@ example : ghzPrep.size = 3 := rfl
 -- append / size
 -- ---------------------------------------------------------------------------
 
-example : (bellPrep ++ (QCircuit.id : QCircuit 2)).size = bellPrep.size + (QCircuit.id : QCircuit 2).size := by
-  simp [QCircuit.size, append, QCircuit.id]
+example : (bellPrep ++ (QCircuit.identity : QCircuit 2)).size = bellPrep.size + (QCircuit.identity : QCircuit 2).size := by
+  simp [QCircuit.size, append, QCircuit.identity]
 
 -- Single gate append
 example (n : ℕ) (g : Gate n) (c : QCircuit n) :

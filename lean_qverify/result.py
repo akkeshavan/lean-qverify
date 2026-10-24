@@ -10,10 +10,12 @@ from enum import Enum
 
 
 class Verdict(Enum):
-    PROVED    = "proved"     # Lean accepted the proof
-    FAILED    = "failed"     # Lean rejected (or counterexample found)
-    WARNING   = "warning"    # Parsed and elaborated, but spec has sorry stubs
-    ERROR     = "error"      # Could not parse / elaborate / run Lean
+    PROVED         = "proved"          # Lean kernel checked a theorem against a spec
+    STRUCT_PROVED  = "struct_proved"   # Structural spec kernel-checked (gate count, depth, etc.)
+    PARSED         = "parsed"          # Circuit parsed and elaborated; no spec checked
+    FAILED         = "failed"          # Lean rejected (or counterexample found)
+    WARNING        = "warning"         # Parsed, but unrecognised gates or unverified angles
+    ERROR          = "error"           # Could not parse / elaborate / run Lean
 
 
 @dataclass
@@ -37,7 +39,15 @@ class VerifyResult:
 
     @property
     def ok(self) -> bool:
-        return self.verdict == Verdict.PROVED
+        """True if the operation succeeded (no error or failure)."""
+        return self.verdict in (
+            Verdict.PROVED, Verdict.STRUCT_PROVED, Verdict.PARSED, Verdict.WARNING
+        )
+
+    @property
+    def kernel_checked(self) -> bool:
+        """True only when Lean's kernel has verified a theorem, not just parsed."""
+        return self.verdict in (Verdict.PROVED, Verdict.STRUCT_PROVED)
 
     def __str__(self) -> str:
         lines = [f"Verdict: {self.verdict.value}"]

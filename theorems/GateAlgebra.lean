@@ -14,27 +14,27 @@ open LeanQVerify QCircuit
 
 -- T15: Hadamard is its own inverse.  H ∘ H = I.
 example (n : ℕ) (i : Fin n) :
-    (ofGate (.H i) ++ ofGate (.H i)) ≅ QCircuit.id :=
+    (ofGate (.H i) ++ ofGate (.H i)) ≅ QCircuit.identity :=
   H_H_eq_id n i
 
 -- T16: Pauli X is its own inverse.  X ∘ X = I.
 example (n : ℕ) (i : Fin n) :
-    (ofGate (.X i) ++ ofGate (.X i)) ≅ QCircuit.id :=
+    (ofGate (.X i) ++ ofGate (.X i)) ≅ QCircuit.identity :=
   X_X_eq_id n i
 
 -- T17: Pauli Y is its own inverse.  Y ∘ Y = I.
 example (n : ℕ) (i : Fin n) :
-    (ofGate (.Y i) ++ ofGate (.Y i)) ≅ QCircuit.id :=
+    (ofGate (.Y i) ++ ofGate (.Y i)) ≅ QCircuit.identity :=
   Y_Y_eq_id n i
 
 -- T18: Pauli Z is its own inverse.  Z ∘ Z = I.
 example (n : ℕ) (i : Fin n) :
-    (ofGate (.Z i) ++ ofGate (.Z i)) ≅ QCircuit.id :=
+    (ofGate (.Z i) ++ ofGate (.Z i)) ≅ QCircuit.identity :=
   Z_Z_eq_id n i
 
 -- T19: CNOT applied twice is the identity.  CNOT ∘ CNOT = I.
 example (n : ℕ) (c t : Fin n) (h : c ≠ t) :
-    (ofGate (.CNOT c t) ++ ofGate (.CNOT c t)) ≅ QCircuit.id :=
+    (ofGate (.CNOT c t) ++ ofGate (.CNOT c t)) ≅ QCircuit.identity :=
   CNOT_CNOT_eq_id n c t h
 
 -- T20: Hadamard conjugates X to Z.  H X H = Z.
@@ -49,7 +49,7 @@ example (n : ℕ) (i : Fin n) :
 
 -- T22: RZ with angle 0 is the identity.  RZ(0) = I.
 example (n : ℕ) (i : Fin n) :
-    ofGate (.RZ 0 i) ≅ QCircuit.id :=
+    ofGate (.RZ 0 i) ≅ QCircuit.identity :=
   RZ_zero_eq_id n i
 
 -- T23: Consecutive RZ rotations compose by angle addition.  RZ(θ) ∘ RZ(φ) = RZ(θ+φ).

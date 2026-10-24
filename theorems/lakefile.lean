@@ -10,4 +10,4 @@ require «lean-qverify» from ".."
 
 -- One library target per circuit family, matching the paper's theorem groups.
 lean_lib Theorems where
-  roots := #[`BellState, `GHZTeleportation, `HEA, `GateAlgebra, `Grover]
+  roots := #[`BellState, `GHZTeleportation, `HEA, `GateAlgebra, `Grover, `Axioms]

@@ -57,8 +57,9 @@ noncomputable def applyTo {n : ℕ} (c : QCircuit n)
 /-- A single-gate circuit. -/
 def ofGate {n : ℕ} (g : Gate n) : QCircuit n := .cons g .empty
 
-/-- The identity circuit (empty). -/
-def id {n : ℕ} : QCircuit n := .empty
+/-- The identity circuit: no gates, implements the identity unitary.
+    Named `identity` (not `id`) to avoid shadowing `_root_.id` on `open QCircuit`. -/
+def identity {n : ℕ} : QCircuit n := .empty
 
 -- ---------------------------------------------------------------------------
 -- Semantic lemmas
@@ -71,14 +72,15 @@ theorem denote_empty {n : ℕ} : (QCircuit.empty : QCircuit n).denote = 1 := rfl
 theorem denote_cons {n : ℕ} (g : Gate n) (c : QCircuit n) :
     (QCircuit.cons g c).denote = c.denote * g.matrix := rfl
 
-theorem denote_append {n : ℕ} (c₁ c₂ : QCircuit n) :
+private theorem denote_append {n : ℕ} (c₁ c₂ : QCircuit n) :
     (c₁.append c₂).denote = c₂.denote * c₁.denote := by
   induction c₁ with
   | empty      => simp [append, denote]
   | cons g c ih =>
     simp [append, denote, ih, mul_assoc]
 
-/-- Sequential composition of circuits: apply c₁ first, then c₂. -/
+/-- Sequential composition: `(c₁ ++ c₂).denote = c₂.denote * c₁.denote`.
+    Gates in c₁ are applied first; matrix multiplication is right-to-left. -/
 theorem denote_seq {n : ℕ} (c₁ c₂ : QCircuit n) :
     (c₁ ++ c₂).denote = c₂.denote * c₁.denote :=
   denote_append c₁ c₂

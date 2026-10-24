@@ -10,5 +10,14 @@ import LeanQVerify.Circuit.Identities
 import LeanQVerify.Spec.CircuitSpec
 import LeanQVerify.Spec.Satisfies
 import LeanQVerify.Spec.StandardSpecs
+import LeanQVerify.Circuit.Parametric
 import LeanQVerify.QASM.Parser
 import LeanQVerify.QASM.Elaborator
+import LeanQVerify.QASM.Serializer
+import LeanQVerify.QASM.ParseTheorems
+import LeanQVerify.ZX.Diagram
+import LeanQVerify.ZX.Semantics
+import LeanQVerify.ZX.Rules
+import LeanQVerify.ZX.CircuitToZX
+import LeanQVerify.ZX.GateTranslation
+import LeanQVerify.Foundation.HoareLogic

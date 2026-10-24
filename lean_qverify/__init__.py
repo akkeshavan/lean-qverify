@@ -4,13 +4,15 @@ lean-qverify: Formal verification of quantum circuits.
 Connects Qiskit circuits to a Lean 4 formal verifier via OpenQASM 3.
 """
 
-from .bridge import verify_circuit
+from .bridge import verify_circuit, verify_circuit_spec
 from .runner import verify_qasm_file, cli_main
 from .result import VerifyResult, Verdict, CounterExample
 from .gpu import detect_gpu, should_use_gpu, GPUInfo
+from .prover import StructuralSpec, StructSpecKind
 
 __all__ = [
     "verify_circuit",
+    "verify_circuit_spec",
     "verify_qasm_file",
     "cli_main",
     "VerifyResult",
@@ -19,6 +21,8 @@ __all__ = [
     "detect_gpu",
     "should_use_gpu",
     "GPUInfo",
+    "StructuralSpec",
+    "StructSpecKind",
 ]
 
 __version__ = "0.1.0"

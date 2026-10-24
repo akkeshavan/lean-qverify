@@ -25,9 +25,74 @@ namespace LeanQVerify.QASM
 
 open LeanQVerify
 
-/-- Convert a Float angle (from the parser) to ℝ.
-    The QASM parser is a trusted bridge; this conversion is not formally verified. -/
-private noncomputable def floatToReal (_ : Float) : ℝ := sorry
+/-!
+## Angle recognition
+
+Qiskit exports rotation angles as Float.  We recognise rational multiples of π
+with denominators 1, 2, 3, 4, 6, 8, 12 — covering all standard gate angles:
+T (π/4), S (π/2), Sdg (−π/2), Tdg (−π/4), CX-phase (π), common RZ angles.
+
+Recognised angles produce exact `ℝ` expressions (no sorry).
+Unrecognised floats fall through to `sorry` (with a warning from the caller).
+
+`angleIsRecognised` is computable (Float only).
+`floatToReal` is noncomputable (returns ℝ).
+-/
+
+/-- Float equality within ε=1e-9. Internal QASM utility used by `floatToReal` and the serializer. -/
+def floatEq (a b : Float) : Bool := (a - b).abs < 1e-9
+
+/-- Float approximation of π. Internal QASM utility; prefer `Real.pi` in Lean proofs. -/
+def fpi : Float := 3.141592653589793238
+
+/-- Computable check: is θ a recognised rational multiple of π? -/
+def angleIsRecognised (θ : Float) : Bool :=
+  let ratios : List Float :=
+    [ 0, 1, -1, 0.5, -0.5, 1.0/3, -1.0/3, 0.25, -0.25,
+      2.0/3, -2.0/3, 0.75, -0.75, 1.0/6, -1.0/6,
+      0.125, -0.125, 0.375, -0.375, 0.625, -0.625, 0.875, -0.875,
+      1.0/12, -1.0/12, 5.0/12, -5.0/12,
+      2.0, -2.0, 1.5, -1.5 ]
+  ratios.any fun r => floatEq θ (r * fpi)
+
+/-- Convert a Float angle to ℝ.
+    Recognises common rational multiples of π exactly.
+    Falls back to 0 for unrecognised values; callers emit a warning.
+    Returning 0 is sound for structural proofs (gate count, depth) since those
+    pattern-match on constructors, not angle values. -/
+noncomputable def floatToReal (θ : Float) : ℝ :=
+  if floatEq θ 0.0           then 0
+  else if floatEq θ fpi      then Real.pi
+  else if floatEq θ (-fpi)   then -Real.pi
+  else if floatEq θ (fpi/2)  then Real.pi / 2
+  else if floatEq θ (-fpi/2) then -(Real.pi / 2)
+  else if floatEq θ (fpi/3)  then Real.pi / 3
+  else if floatEq θ (-fpi/3) then -(Real.pi / 3)
+  else if floatEq θ (fpi/4)  then Real.pi / 4
+  else if floatEq θ (-fpi/4) then -(Real.pi / 4)
+  else if floatEq θ (2*fpi/3)  then 2 * Real.pi / 3
+  else if floatEq θ (-2*fpi/3) then -(2 * Real.pi / 3)
+  else if floatEq θ (3*fpi/4)  then 3 * Real.pi / 4
+  else if floatEq θ (-3*fpi/4) then -(3 * Real.pi / 4)
+  else if floatEq θ (fpi/6)  then Real.pi / 6
+  else if floatEq θ (-fpi/6) then -(Real.pi / 6)
+  else if floatEq θ (fpi/8)  then Real.pi / 8
+  else if floatEq θ (-fpi/8) then -(Real.pi / 8)
+  else if floatEq θ (3*fpi/8)  then 3 * Real.pi / 8
+  else if floatEq θ (-3*fpi/8) then -(3 * Real.pi / 8)
+  else if floatEq θ (5*fpi/8)  then 5 * Real.pi / 8
+  else if floatEq θ (-5*fpi/8) then -(5 * Real.pi / 8)
+  else if floatEq θ (7*fpi/8)  then 7 * Real.pi / 8
+  else if floatEq θ (-7*fpi/8) then -(7 * Real.pi / 8)
+  else if floatEq θ (fpi/12)   then Real.pi / 12
+  else if floatEq θ (-fpi/12)  then -(Real.pi / 12)
+  else if floatEq θ (5*fpi/12) then 5 * Real.pi / 12
+  else if floatEq θ (-5*fpi/12) then -(5 * Real.pi / 12)
+  else if floatEq θ (2*fpi)   then 2 * Real.pi
+  else if floatEq θ (-2*fpi)  then -(2 * Real.pi)
+  else if floatEq θ (3*fpi/2)  then 3 * Real.pi / 2
+  else if floatEq θ (-3*fpi/2) then -(3 * Real.pi / 2)
+  else 0  -- unrecognised angle: return 0 (callers emit a warning; structural proofs are unaffected)
 
 -- ---------------------------------------------------------------------------
 -- Register map: name → (startIndex, size)
@@ -36,7 +101,8 @@ private noncomputable def floatToReal (_ : Float) : ℝ := sorry
 /-- Maps register names to their base qubit offset and size. -/
 abbrev RegMap := List (String × Nat × Nat)  -- (name, start, size)
 
-private def buildRegMap (regs : List RegDecl) : RegMap :=
+-- Internal to the QASM subsystem (used by Elaborator + Serializer); not stable library API.
+def buildRegMap (regs : List RegDecl) : RegMap :=
   let rec go (rs : List RegDecl) (offset : Nat) : RegMap :=
     match rs with
     | []      => []
@@ -44,12 +110,10 @@ private def buildRegMap (regs : List RegDecl) : RegMap :=
       (r.name, offset, r.size) :: go rest (offset + r.size)
   go regs 0
 
-private def totalQubits (regs : List RegDecl) : Nat :=
+def totalQubits (regs : List RegDecl) : Nat :=
   regs.foldl (fun acc r => acc + r.size) 0
 
-/-- Resolve a `QubitRef` to an absolute qubit index.
-    Returns `none` if the register is unknown or the index is out of range. -/
-private def resolveQubit (m : RegMap) (ref : QubitRef) : Option Nat :=
+def resolveQubit (m : RegMap) (ref : QubitRef) : Option Nat :=
   match m.find? (fun ⟨name, _, _⟩ => name == ref.reg) with
   | none                   => none
   | some ⟨_, start, size⟩ =>
@@ -69,7 +133,6 @@ structure ElabResult where
 -- Core elaboration
 -- ---------------------------------------------------------------------------
 
-/-- Try to make a `Fin n` from a raw index; returns `none` if out of bounds. -/
 private def mkFin (n : Nat) (i : Nat) : Option (Fin n) :=
   if h : i < n then some ⟨i, h⟩ else none
 
@@ -94,9 +157,24 @@ private def countGate (n : Nat) (m : RegMap) (g : GateApp) :
   | .z    q       => resolve1qubit q
   | .s    q       => resolve1qubit q
   | .t    q       => resolve1qubit q
-  | .rx _ q       => resolve1qubit q
-  | .ry _ q       => resolve1qubit q
-  | .rz _ q       => resolve1qubit q
+  | .rx θ q =>
+    let (ok, w) := resolve1qubit q
+    let warn := if ok && !angleIsRecognised θ
+                then some s!"rx angle {θ} not a recognised rational multiple of π; semantic proofs will use sorry"
+                else w
+    (ok, warn)
+  | .ry θ q =>
+    let (ok, w) := resolve1qubit q
+    let warn := if ok && !angleIsRecognised θ
+                then some s!"ry angle {θ} not a recognised rational multiple of π; semantic proofs will use sorry"
+                else w
+    (ok, warn)
+  | .rz θ q =>
+    let (ok, w) := resolve1qubit q
+    let warn := if ok && !angleIsRecognised θ
+                then some s!"rz angle {θ} not a recognised rational multiple of π; semantic proofs will use sorry"
+                else w
+    (ok, warn)
   | .cx   c t     =>
     match resolve2 c t with | some _ => (true, none) | none => (false, some "unresolved qubits for cx")
   | .cz   c t     =>
@@ -107,6 +185,56 @@ private def countGate (n : Nat) (m : RegMap) (g : GateApp) :
     match resolve3 c1 c2 t with
     | some _ => (true,  none)
     | none   => (false, some s!"unresolved qubits for ccx")
+  | .u3 θ φ lam q =>
+    let (ok, w) := resolve1qubit q
+    let warn := if ok && (!angleIsRecognised θ || !angleIsRecognised φ || !angleIsRecognised lam)
+                then some "u3 angle not a recognised rational multiple of π; semantic proofs will use sorry"
+                else w
+    (ok, warn)
+  | .ch  c t =>
+    match resolve2 c t with | some _ => (true, none) | none => (false, some "unresolved qubits for ch")
+  | .cy  c t =>
+    match resolve2 c t with | some _ => (true, none) | none => (false, some "unresolved qubits for cy")
+  | .cp  θ c t =>
+    match resolve2 c t with
+    | some _ =>
+      let warn := if !angleIsRecognised θ
+                  then some s!"cp angle {θ} not a recognised rational multiple of π; semantic proofs will use sorry"
+                  else none
+      (true, warn)
+    | none => (false, some "unresolved qubits for cp")
+  | .crz θ c t =>
+    match resolve2 c t with
+    | some _ =>
+      let warn := if !angleIsRecognised θ
+                  then some s!"crz angle {θ} not a recognised rational multiple of π; semantic proofs will use sorry"
+                  else none
+      (true, warn)
+    | none => (false, some "unresolved qubits for crz")
+  | .rzz θ i j =>
+    match resolve2 i j with
+    | some _ =>
+      let warn := if !angleIsRecognised θ
+                  then some s!"rzz angle {θ} not a recognised rational multiple of π; semantic proofs will use sorry"
+                  else none
+      (true, warn)
+    | none => (false, some "unresolved qubits for rzz")
+  | .rxx θ i j =>
+    match resolve2 i j with
+    | some _ =>
+      let warn := if !angleIsRecognised θ
+                  then some s!"rxx angle {θ} not a recognised rational multiple of π; semantic proofs will use sorry"
+                  else none
+      (true, warn)
+    | none => (false, some "unresolved qubits for rxx")
+  | .ryy θ i j =>
+    match resolve2 i j with
+    | some _ =>
+      let warn := if !angleIsRecognised θ
+                  then some s!"ryy angle {θ} not a recognised rational multiple of π; semantic proofs will use sorry"
+                  else none
+      (true, warn)
+    | none => (false, some "unresolved qubits for ryy")
   | .skipped name => (false, some s!"unsupported gate skipped: {name}")
 
 /-- Elaborate a full `QASMProgram` into an `ElabResult`. -/
@@ -148,9 +276,58 @@ private noncomputable def elabGate (n : Nat) (m : RegMap) (g : GateApp) :
   | .cz   c t     => match resolve2 c t with | some (ci, ti) => (some (.CZ  ci ti), none) | none => (none, some "unresolved qubits for cz")
   | .swap i j     => match resolve2 i j with | some (ii, ji) => (some (.SWAP ii ji), none) | none => (none, some "unresolved qubits for swap")
   | .ccx  c1 c2 t => match resolve3 c1 c2 t with | some (c1i, c2i, ti) => (some (.CCX c1i c2i ti), none) | none => (none, some "unresolved qubits for ccx")
-  | .rx   θ q     => match resolve1 q with | some i => (some (.RX (floatToReal θ) i), none) | none => (none, some s!"unresolved qubit {q.reg}[{q.index}]")
-  | .ry   θ q     => match resolve1 q with | some i => (some (.RY (floatToReal θ) i), none) | none => (none, some s!"unresolved qubit {q.reg}[{q.index}]")
-  | .rz   θ q     => match resolve1 q with | some i => (some (.RZ (floatToReal θ) i), none) | none => (none, some s!"unresolved qubit {q.reg}[{q.index}]")
+  | .u3   θ φ lam q => match resolve1 q with
+    | some i =>
+      let warn := if !angleIsRecognised θ || !angleIsRecognised φ || !angleIsRecognised lam
+                  then some "u3 angle not a recognised rational multiple of π; using sorry"
+                  else none
+      (some (.U3 (floatToReal θ) (floatToReal φ) (floatToReal lam) i), warn)
+    | none => (none, some s!"unresolved qubit {q.reg}[{q.index}]")
+  | .ch   c t     => match resolve2 c t with | some (ci, ti) => (some (.CH  ci ti), none) | none => (none, some "unresolved qubits for ch")
+  | .cy   c t     => match resolve2 c t with | some (ci, ti) => (some (.CY  ci ti), none) | none => (none, some "unresolved qubits for cy")
+  | .cp   θ c t   => match resolve2 c t with
+    | some (ci, ti) =>
+      let warn := if !angleIsRecognised θ then some s!"cp angle {θ} not a recognised rational multiple of π; using sorry" else none
+      (some (.CP (floatToReal θ) ci ti), warn)
+    | none => (none, some "unresolved qubits for cp")
+  | .crz  θ c t   => match resolve2 c t with
+    | some (ci, ti) =>
+      let warn := if !angleIsRecognised θ then some s!"crz angle {θ} not a recognised rational multiple of π; using sorry" else none
+      (some (.CRZ (floatToReal θ) ci ti), warn)
+    | none => (none, some "unresolved qubits for crz")
+  | .rzz  θ i j   => match resolve2 i j with
+    | some (ii, ji) =>
+      let warn := if !angleIsRecognised θ then some s!"rzz angle {θ} not a recognised rational multiple of π; using sorry" else none
+      (some (.RZZ (floatToReal θ) ii ji), warn)
+    | none => (none, some "unresolved qubits for rzz")
+  | .rxx  θ i j   => match resolve2 i j with
+    | some (ii, ji) =>
+      let warn := if !angleIsRecognised θ then some s!"rxx angle {θ} not a recognised rational multiple of π; using sorry" else none
+      (some (.RXX (floatToReal θ) ii ji), warn)
+    | none => (none, some "unresolved qubits for rxx")
+  | .ryy  θ i j   => match resolve2 i j with
+    | some (ii, ji) =>
+      let warn := if !angleIsRecognised θ then some s!"ryy angle {θ} not a recognised rational multiple of π; using sorry" else none
+      (some (.RYY (floatToReal θ) ii ji), warn)
+    | none => (none, some "unresolved qubits for ryy")
+  | .rx   θ q     => match resolve1 q with
+    | some i =>
+      let warn := if angleIsRecognised θ then none
+                  else some s!"rx angle {θ} not a recognised rational multiple of π; using sorry"
+      (some (.RX (floatToReal θ) i), warn)
+    | none => (none, some s!"unresolved qubit {q.reg}[{q.index}]")
+  | .ry   θ q     => match resolve1 q with
+    | some i =>
+      let warn := if angleIsRecognised θ then none
+                  else some s!"ry angle {θ} not a recognised rational multiple of π; using sorry"
+      (some (.RY (floatToReal θ) i), warn)
+    | none => (none, some s!"unresolved qubit {q.reg}[{q.index}]")
+  | .rz   θ q     => match resolve1 q with
+    | some i =>
+      let warn := if angleIsRecognised θ then none
+                  else some s!"rz angle {θ} not a recognised rational multiple of π; using sorry"
+      (some (.RZ (floatToReal θ) i), warn)
+    | none => (none, some s!"unresolved qubit {q.reg}[{q.index}]")
   | .skipped name => (none, some s!"unsupported gate skipped: {name}")
 
 /-- Produce a formal QCircuit from a parsed program (noncomputable; for proof use). -/

@@ -72,7 +72,7 @@ Lane A gives fast automated feedback. Lane B gives a kernel-checked guarantee. O
 
 ## Artifact evaluation
 
-To independently verify all 25 proved theorems, see
+To independently verify all 40 proved theorems, see
 **[`theorems/README.md`](theorems/README.md)** for step-by-step build
 instructions, expected output, and a sorry audit.
 
@@ -99,7 +99,8 @@ All of the following are kernel-checked — no `sorry` anywhere in the proof tre
 | SWAP | ≡ CNOT(i,j)∘CNOT(j,i)∘CNOT(i,j) | `Nat.testBit_xor` + sum collapse |
 | Grover (2-qubit, 1 step) | P(q₀=1) ≥ 0.99 | explicit 4×4 unitary + `norm_num` |
 
-All 25 theorems are kernel-checked with no `sorry` in the proof tree.
+All 40 theorems are kernel-checked with no `sorry` in the proof tree.
+The core 38 are independently verifiable via the `theorems/` folder; 2 additional theorems are in the book examples (Chapters 11–12).
 
 ---
 
@@ -123,8 +124,13 @@ lean-qverify/
 │   └── QASM/
 │       ├── Parser.lean         -- OpenQASM 3 recursive-descent parser
 │       └── Elaborator.lean     -- AST → ElabResult / QCircuit n
+├── book/
+│   ├── Book/Ch01–Ch12/         -- Lean examples for each chapter
+│   ├── book.pdf                -- compiled book (12 chapters, ~50 pages)
+│   └── README.md               -- book build instructions
 ├── lean_qverify/               -- Python bridge package
 │   ├── bridge.py               -- Qiskit → lean-qverify-check integration
+│   ├── prover.py               -- structural spec proof pipeline
 │   ├── gpu.py                  -- GPU detection and fallback
 │   ├── simulator.py            -- Aer simulator selector
 │   ├── counterexample.py       -- numerical counterexample search
@@ -139,20 +145,47 @@ lean-qverify/
 │   ├── teleportation.py
 │   └── grover_verify.py
 ├── lakefile.lean               -- Lean build config
-├── lean-toolchain              -- pins Lean 4.14.0
+├── lean-toolchain              -- pins Lean 4.33.0-rc1
 └── pyproject.toml              -- Python package config
 ```
 
 ---
 
-## Setup
+## Using as a Lean library
+
+Add `lean-qverify` to your project's `lakefile.lean`:
+
+```lean
+require «lean-qverify» from git
+  "https://github.com/akkeshavan/lean-qverify" @ "v0.1.0.0"
+```
+
+Then in your Lean files:
+
+```lean
+import LeanQVerify
+
+open LeanQVerify
+
+-- A 2-qubit Bell-state preparation circuit
+#check QCircuit.bellPrep   -- QCircuit 2
+
+-- Verify it has exactly 2 gates
+example : QCircuit.bellPrep ⊨ CircuitSpec.totalGates 2 := by
+  simp [CircuitSpec.satisfies, CircuitSpec.countGates, QCircuit.bellPrep,
+        CircuitSpec.totalGates]
+```
+
+---
+
+## Setup (development)
 
 ### Prerequisites
 
 | Tool | Version | Install |
 |---|---|---|
-| Lean 4 | 4.14.0 (pinned via `lean-toolchain`) | [elan](https://github.com/leanprover/elan) |
-| Mathlib | 4.14.0 | fetched automatically by `lake` |
+| Lean 4 | 4.33.0-rc1 (pinned via `lean-toolchain`) | [elan](https://github.com/leanprover/elan) |
+| Mathlib | 4.33.0-rc1 | fetched automatically by `lake` |
 | Python | ≥ 3.10 | system or conda |
 | Qiskit | ≥ 1.0 | `pip install qiskit` |
 
@@ -162,29 +195,22 @@ lean-qverify/
 curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh
 ```
 
-Restart your shell, then verify:
-
-```bash
-lean --version   # should print Lean 4.14.0
-lake --version
-```
-
 ### 2. Build
 
 ```bash
 # From inside the lean-qverify directory:
 
-# Fetch Mathlib and lock dependency versions (uses pinned lake-manifest.json)
+# Fetch Mathlib and lock dependency versions
 lake update
 
-# Download prebuilt Mathlib oleans — skips ~30 min of compilation
+# Download prebuilt Mathlib oleans (saves ~30 min of compilation)
 lake exe cache get
 
-# Build the verifier binary and all library files
+# Build everything
 lake build
 ```
 
-The verifier binary lands at `.lake/build/bin/lean-qverify-check`.
+The CLI binary lands at `.lake/build/bin/lean-qverify-check`.
 
 ### 3. Install the Python package
 
@@ -287,6 +313,6 @@ Install with `pip install -e ".[gpu]"` on a CUDA 12 machine. The package falls b
 
 ## Status
 
-**Complete.** All core types, parser, elaborator, specification language, and 24 kernel-checked theorems are implemented and building with no `sorry` remaining.
+**v0.1.0.0.** All core types, parser, elaborator, specification language, and 40 kernel-checked theorems are implemented. One infrastructure stub remains in `DensityMatrix.lean` (post-measurement state collapse) — it is unused by any proved theorem. See the sorry audit in `theorems/README.md`.
 
 See `SPEC.md` for the full design specification and `FUTURE_WORK.md` for the roadmap.

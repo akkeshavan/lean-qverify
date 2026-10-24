@@ -28,6 +28,18 @@ def test_verify_result_ok_proved():
     assert r.ok is True
 
 
+def test_verify_result_ok_parsed():
+    r = VerifyResult(verdict=Verdict.PARSED, n_qubits=2, n_gates=2)
+    assert r.ok is True
+    assert r.kernel_checked is False
+
+
+def test_verify_result_ok_warning():
+    r = VerifyResult(verdict=Verdict.WARNING, n_qubits=1, n_gates=1)
+    assert r.ok is True
+    assert r.kernel_checked is False
+
+
 def test_verify_result_not_ok_failed():
     r = VerifyResult(verdict=Verdict.FAILED)
     assert r.ok is False
@@ -70,7 +82,7 @@ def test_verify_bell_circuit(bell_circuit):
     result = verify_circuit(bell_circuit, run_counterexample=False)
     assert result.n_qubits == 2
     assert result.n_gates == 2
-    assert result.verdict in (Verdict.PROVED, Verdict.WARNING)
+    assert result.verdict in (Verdict.PARSED, Verdict.WARNING)
 
 
 @skip_no_lean

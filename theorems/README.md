@@ -1,6 +1,6 @@
 # Independent Theorem Verification
 
-This folder is the self-contained artifact for verifying all 25 theorems
+This folder is the self-contained artifact for verifying all 38 theorems
 claimed in the paper.  A clean build of this folder — with the exact output
 described below — is the machine-checked certificate.
 
@@ -19,7 +19,7 @@ lake build                     # ~5 min: compiles lean-qverify + all theorems
 cd theorems
 lake update
 lake exe cache get
-lake build                     # verifies all 25 theorems independently
+lake build                     # verifies all 38 theorems independently
 ```
 
 **Pass criterion:** the final line of each `lake build` is:
@@ -117,7 +117,7 @@ lake exe cache get
 lake build
 ```
 
-This sub-package imports the compiled library and runs all 25 theorem
+This sub-package imports the compiled library and runs all 38 theorem
 type-checks independently.  Each `example` forces Lean's kernel to re-verify
 the stated proposition against the named proof term.
 
@@ -140,13 +140,14 @@ error.
 
 ### Files and theorem groups
 
-| File | Theorems | Circuit |
+| File | Theorems | Circuit/Topic |
 |------|----------|---------|
-| `BellState.lean` | T1–T5 | Bell state preparation (2 qubits) |
-| `GHZTeleportation.lean` | T6–T8 | GHZ and teleportation (3 qubits) |
-| `HEA.lean` | T9–T14 | Hardware-efficient ansatz (4 qubits) |
-| `GateAlgebra.lean` | T15–T24 | Gate algebra identities |
-| `Grover.lean` | T25 | Grover's algorithm (2 qubits, 1 step) |
+| `BellState.lean` | T1–T9 | Bell state preparation (2 qubits) |
+| `GHZTeleportation.lean` | T10–T12 | GHZ and teleportation (3 qubits) |
+| `HEA.lean` | T13–T18 | Hardware-efficient ansatz (4 qubits) |
+| `GateAlgebra.lean` | T19–T28 | Gate algebra identities |
+| `Grover.lean` | T29 | Grover's algorithm (2 qubits, 1 step) |
+| `Axioms.lean` | T30–T38 | DensityMatrix + Parametric + QASM parser |
 
 To check a single group:
 
@@ -157,38 +158,36 @@ lake build GHZTeleportation
 lake build HEA
 lake build GateAlgebra
 lake build Grover
+lake build Axioms
 ```
 
 ---
 
 ## Sorry audit
 
-To confirm no `sorry` appears in the proof paths of the 25 theorems:
+The repository contains **zero `sorry` instances** in library or theorem source files.
+All 38 theorems have clean `#print axioms` output (only `Classical.choice`, `propext`, `Quot.sound`).
+
+To confirm:
 
 ```bash
 # From the repository root:
 # (matches sorry as a tactic or definition — ignores comments)
 grep -Prn "^\s*sorry\s*$|:=\s*sorry" \
   LeanQVerify/Circuit/Identities.lean \
+  LeanQVerify/Circuit/Parametric.lean \
   LeanQVerify/Spec/StandardSpecs.lean \
   LeanQVerify/Foundation/Unitary.lean \
   LeanQVerify/Foundation/QState.lean \
+  LeanQVerify/Foundation/DensityMatrix.lean \
   LeanQVerify/Circuit/Gate.lean \
   LeanQVerify/Circuit/QCircuit.lean \
   LeanQVerify/Spec/CircuitSpec.lean \
-  LeanQVerify/Spec/Satisfies.lean
+  LeanQVerify/Spec/Satisfies.lean \
+  LeanQVerify/QASM/ParseTheorems.lean
 ```
 
 This command should produce **no output**.
-
-The only `sorry` instances in the repository are in two modules that none of
-the 25 theorems depend on:
-
-- `LeanQVerify/QASM/Elaborator.lean` — the `floatToReal` bridge used
-  exclusively by the CLI parser at runtime.  Every proved circuit is defined
-  directly in Lean with exact real-number angles; the parser is never invoked.
-- `LeanQVerify/Foundation/DensityMatrix.lean` — density-matrix infrastructure
-  stubs for future noisy-channel work.  No proved theorem imports this file.
 
 ---
 
@@ -201,26 +200,39 @@ the 25 theorems depend on:
 | T3 | `bellPrep_depth` | Bell circuit: depth ≤ 2 | `simp` |
 | T4 | `bellPrep_entangled` | P(q₀=0) ≥ 1/2 from \|00⟩ | matrix + `norm_num` |
 | T5 | `bellPrep_entangled_one` | P(q₀=1) ≥ 1/2 from \|00⟩ | matrix + `norm_num` |
-| T6 | `ghzPrep_threeGates` | GHZ circuit: 3 gates | `simp` |
-| T7 | `ghzPrep_depth` | GHZ circuit: depth ≤ 3 | `simp` |
-| T8 | `teleportPrep_depth` | Teleportation: depth ≤ 4 | `simp` |
-| T9 | `hea4_gateCount` | HEA: 7 gates | `simp` |
-| T10 | `hea4_cnotCount` | HEA: 3 CNOTs | `simp` |
-| T11 | `hea4_rzCount` | HEA: 4 RZ gates | `simp` |
-| T12 | `hea4_depth` | HEA: depth ≤ 4 | `simp` |
-| T13 | `hea4_zero_eq_cnotChain` | hea4(0⃗) ≅ CNOT chain | `Rz_zero_id` |
-| T14 | `hea4_rz_fuse_single` | RZ(θ) ∘ RZ(φ) ≅ RZ(θ+φ) | `Rz_mat_add` |
-| T15 | `H_H_eq_id` | H ∘ H ≅ I | `embedGate1_self_inverse` |
-| T16 | `X_X_eq_id` | X ∘ X ≅ I | `embedGate1_self_inverse` |
-| T17 | `Y_Y_eq_id` | Y ∘ Y ≅ I | `embedGate1_self_inverse` |
-| T18 | `Z_Z_eq_id` | Z ∘ Z ≅ I | `embedGate1_self_inverse` |
-| T19 | `CNOT_CNOT_eq_id` | CNOT ∘ CNOT ≅ I | `embedCNOT_self_mul` |
-| T20 | `H_X_H_eq_Z` | HXH ≅ Z | `nlinarith` |
-| T21 | `H_Z_H_eq_X` | HZH ≅ X | `nlinarith` |
-| T22 | `RZ_zero_eq_id` | RZ(0) ≅ I | `Rz_zero_id` |
-| T23 | `RZ_add` | RZ(θ) ∘ RZ(φ) ≅ RZ(θ+φ) | `Rz_mat_add` |
-| T24 | `SWAP_eq_three_CNOTs` | SWAP ≅ CNOT³ | `Nat.testBit_xor` |
-| T25 | `groverStep2_correct` | P(q₀=1) ≥ 0.99 after Grover step | 4×4 matrix + `norm_num` |
+| T6 | `bellPrep_joint_ket00` | P(\|00⟩) ≥ 1/2 from \|00⟩ | `jointMeasProb` + `norm_num` |
+| T7 | `bellPrep_joint_ket11` | P(\|11⟩) ≥ 1/2 from \|00⟩ | `jointMeasProb` + `norm_num` |
+| T8 | `bellPrep_joint_ket01_zero` | P(\|01⟩) = 0 from \|00⟩ | `jointMeasProb` + `norm_num` |
+| T9 | `bellPrep_joint_ket10_zero` | P(\|10⟩) = 0 from \|00⟩ | `jointMeasProb` + `norm_num` |
+| T10 | `ghzPrep_threeGates` | GHZ circuit: 3 gates | `simp` |
+| T11 | `ghzPrep_depth` | GHZ circuit: depth ≤ 3 | `simp` |
+| T12 | `teleportPrep_depth` | Teleportation: depth ≤ 4 | `simp` |
+| T13 | `hea4_gateCount` | HEA: 7 gates | `simp` |
+| T14 | `hea4_cnotCount` | HEA: 3 CNOTs | `simp` |
+| T15 | `hea4_rzCount` | HEA: 4 RZ gates | `simp` |
+| T16 | `hea4_depth` | HEA: depth ≤ 4 | `simp` |
+| T17 | `hea4_zero_eq_cnotChain` | hea4(0⃗) ≅ CNOT chain | `Rz_zero_id` |
+| T18 | `hea4_rz_fuse_single` | RZ(θ) ∘ RZ(φ) ≅ RZ(θ+φ) | `Rz_mat_add` |
+| T19 | `H_H_eq_id` | H ∘ H ≅ I | `embedGate1_self_inverse` |
+| T20 | `X_X_eq_id` | X ∘ X ≅ I | `embedGate1_self_inverse` |
+| T21 | `Y_Y_eq_id` | Y ∘ Y ≅ I | `embedGate1_self_inverse` |
+| T22 | `Z_Z_eq_id` | Z ∘ Z ≅ I | `embedGate1_self_inverse` |
+| T23 | `CNOT_CNOT_eq_id` | CNOT ∘ CNOT ≅ I | `embedCNOT_self_mul` |
+| T24 | `H_X_H_eq_Z` | HXH ≅ Z | `nlinarith` |
+| T25 | `H_Z_H_eq_X` | HZH ≅ X | `nlinarith` |
+| T26 | `RZ_zero_eq_id` | RZ(0) ≅ I | `Rz_zero_id` |
+| T27 | `RZ_add` | RZ(θ) ∘ RZ(φ) ≅ RZ(θ+φ) | `Rz_mat_add` |
+| T28 | `SWAP_eq_three_CNOTs` | SWAP ≅ CNOT³ | `Nat.testBit_xor` |
+| T29 | `groverStep2_correct` | P(q₀=1) ≥ 0.99 after Grover step | 4×4 matrix + `norm_num` |
+| T30 | `DensityMatrix.ofPure` | ρ = \|ψ⟩⟨ψ\| is Hermitian + PSD + trace-1 | inline `where` proofs |
+| T31 | `DensityMatrix.applyUnitary` | UρU† is Hermitian + PSD + trace-1 | inline `where` proofs |
+| T32 | `countGates_append` | countGates is additive over append | induction |
+| T33 | `ghzCircuit_gateCount` | ghzCircuit(n+1): n+1 gates | `show` + induction |
+| T34 | `ghzCircuit_cnotCount` | ghzCircuit(n+1): n CNOTs | `show` + `castSucc` + induction |
+| T35 | `bvOracle_cnotCount_le` | bvOracle(n,s): ≤ n CNOTs | `show` + `split_ifs` + induction |
+| T36 | `checkWellFormed_sound` | Bool checker ⇒ formal `wellFormed` Prop | `List.all_eq_true` + `BEq` |
+| T37 | `bellProgram_wellFormed` | Bell QASM program passes checker | `rfl` |
+| T38 | `ghz3Program_wellFormed` | GHZ-3 QASM program passes checker | `rfl` |
 
 ---
 

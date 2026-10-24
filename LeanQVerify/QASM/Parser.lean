@@ -40,6 +40,15 @@ inductive GateApp : Type where
   | rx   : Float → QubitRef → GateApp
   | ry   : Float → QubitRef → GateApp
   | rz   : Float → QubitRef → GateApp
+  -- Extended gate set (Phase 2)
+  | u3   : Float → Float → Float → QubitRef → GateApp   -- U3(θ,φ,λ)
+  | ch   : QubitRef → QubitRef → GateApp                 -- Controlled-H
+  | cy   : QubitRef → QubitRef → GateApp                 -- Controlled-Y
+  | cp   : Float → QubitRef → QubitRef → GateApp         -- Controlled-phase(θ)
+  | crz  : Float → QubitRef → QubitRef → GateApp         -- Controlled-Rz(θ)
+  | rzz  : Float → QubitRef → QubitRef → GateApp         -- Rzz(θ)
+  | rxx  : Float → QubitRef → QubitRef → GateApp         -- Rxx(θ)
+  | ryy  : Float → QubitRef → QubitRef → GateApp         -- Ryy(θ)
   | skipped : String → GateApp   -- unsupported gate, kept for warning
   deriving Repr, Inhabited
 
@@ -60,11 +69,11 @@ structure QASMProgram where
 -- Parser state and primitives
 -- ---------------------------------------------------------------------------
 
-structure ParseState where
+private structure ParseState where
   src  : String
   pos  : Nat
 
-abbrev Parser (α : Type) := ParseState → Except String (α × ParseState)
+private abbrev Parser (α : Type) := ParseState → Except String (α × ParseState)
 
 private def peek (s : ParseState) : Option Char :=
   s.src.get? ⟨s.pos⟩
@@ -165,7 +174,22 @@ private partial def readFloat (s : ParseState) : Option (Float × ParseState) :=
       match peek s1 with
       | some '.' =>
         let (fracPart, s2) := readWhile Char.isDigit (advance s1)
-        some (strToFloat intPart fracPart, s2)
+        -- Handle optional exponent: e±N or E±N
+        let baseVal := strToFloat intPart fracPart
+        match peek s2 with
+        | some 'e' | some 'E' =>
+          let s3 := advance s2
+          let (negExp, s4) := match peek s3 with
+            | some '-' => (true,  advance s3)
+            | some '+' => (false, advance s3)
+            | _        => (false, s3)
+          let (expDigits, s5) := readWhile Char.isDigit s4
+          if expDigits.isEmpty then some (baseVal, s2)
+          else
+            let exp := expDigits.toNat!
+            let factor := (List.range exp).foldl (fun acc _ => acc * 10.0) 1.0
+            some (if negExp then baseVal / factor else baseVal * factor, s5)
+        | _ => some (baseVal, s2)
       | _ => some (strToFloat intPart "", s1)
 
 private def expectChar (c : Char) : Parser Unit := fun s =>
@@ -230,6 +254,17 @@ private partial def parseQubitsAux (st : ParseState) (acc : List QubitRef) :
     then parseQubitsAux (skipNoise (advance st'')) (q :: acc)
     else (List.reverse (q :: acc), st'')
 
+-- Read a comma-separated list of floats (recursive, terminates when no float is found).
+private partial def readFloatListAux (st : ParseState) (acc : List Float) :
+    List Float × ParseState :=
+  match readFloat st with
+  | none        => (acc.reverse, st)
+  | some (f, st') =>
+    let st'' := skipNoise st'
+    if peek st'' = some ','
+    then readFloatListAux (skipNoise (advance st'')) (f :: acc)
+    else ((f :: acc).reverse, st'')
+
 private def parseStatement (s : ParseState) :
     Option (GateApp ⊕ RegDecl ⊕ String) × ParseState :=
   let s := skipNoise s
@@ -240,8 +275,10 @@ private def parseStatement (s : ParseState) :
     | "OPENQASM" => (none, skipToSemicolon s1)
     | "include"  => (none, skipToSemicolon s1)
     | "bit" | "creg" => (none, skipToSemicolon s1)  -- classical bits, ignore
+    | "measure" => (none, skipToSemicolon s1)        -- measurements, ignore
+    | "barrier" => (none, skipToSemicolon s1)        -- barriers, ignore
     | "qubit" =>
-      -- qubit[n] name;
+      -- OpenQASM 3: qubit[n] name;
       let s1 := skipNoise s1
       match expectChar '[' s1 with
       | .error _ => (none, skipToSemicolon s1)
@@ -257,39 +294,76 @@ private def parseStatement (s : ParseState) :
             | none => (none, skipToSemicolon s4)
             | some (name, s5) =>
               (some (.inr (.inl ⟨name, size⟩)), skipToSemicolon s5)
+    | "qreg" =>
+      -- OpenQASM 2.0: qreg name[n];
+      let s1 := skipNoise s1
+      match readIdent s1 with
+      | none => (none, skipToSemicolon s1)
+      | some (name, s2) =>
+        let s2 := skipNoise s2
+        match expectChar '[' s2 with
+        | .error _ => (none, skipToSemicolon s2)
+        | .ok (_, s3) =>
+          match readNat (skipNoise s3) with
+          | none => (none, skipToSemicolon s3)
+          | some (size, s4) =>
+            match expectChar ']' (skipNoise s4) with
+            | .error _ => (none, skipToSemicolon s4)
+            | .ok (_, s5) =>
+              (some (.inr (.inl ⟨name, size⟩)), skipToSemicolon s5)
     | gateName =>
       -- Gate application
       let s1 := skipNoise s1
-      -- Check for angle parameter: gateName(theta) or gateName qubit
-      let (maybeAngle, s2) :=
+      -- Parse angle list: gateName(a) or gateName(a,b,c) or gateName (no parens)
+      let (angles, s2) :=
         if peek s1 = some '('
         then
-          match readFloat (skipNoise (advance s1)) with
-          | none => (none, s1)
-          | some (f, sAfter) =>
-            match expectChar ')' (skipNoise sAfter) with
-            | .ok (_, sAfterParen) => (some f, skipNoise sAfterParen)
-            | .error _ => (none, s1)
-        else (none, s1)
+          let s1' := skipNoise (advance s1)
+          let (fs, sAfter) := readFloatListAux s1' []
+          match expectChar ')' (skipNoise sAfter) with
+          | .ok (_, sAfterParen) => (fs, skipNoise sAfterParen)
+          | .error _             => ([], s1)
+        else ([], s1)
       -- Parse qubit arguments
       let (qubits, s3) := parseQubitsAux s2 []
       let s4 := skipToSemicolon s3
-      let gate : Option GateApp := match gateName, qubits, maybeAngle with
-        | "h",    [q],       none  => some (.h q)
-        | "x",    [q],       none  => some (.x q)
-        | "y",    [q],       none  => some (.y q)
-        | "z",    [q],       none  => some (.z q)
-        | "s",    [q],       none  => some (.s q)
-        | "t",    [q],       none  => some (.t q)
-        | "cx",   [c, t],    none  => some (.cx c t)
-        | "cnot", [c, t],    none  => some (.cx c t)
-        | "cz",   [c, t],    none  => some (.cz c t)
-        | "swap", [i, j],    none  => some (.swap i j)
-        | "ccx",  [c1,c2,t], none  => some (.ccx c1 c2 t)
-        | "rx",   [q],       some θ => some (.rx θ q)
-        | "ry",   [q],       some θ => some (.ry θ q)
-        | "rz",   [q],       some θ => some (.rz θ q)
-        | name,   _,         _     => some (.skipped name)
+      let gate : Option GateApp := match gateName, qubits, angles with
+        | "h",    [q],          []            => some (.h q)
+        | "x",    [q],          []            => some (.x q)
+        | "y",    [q],          []            => some (.y q)
+        | "z",    [q],          []            => some (.z q)
+        | "s",    [q],          []            => some (.s q)
+        | "t",    [q],          []            => some (.t q)
+        -- S†: RZ(-π/2); T†: RZ(-π/4)  (OpenQASM 2.0 adjoint gates)
+        | "sdg",  [q],          []            => some (.rz (-1.5707963267948966) q)
+        | "tdg",  [q],          []            => some (.rz (-0.7853981633974483) q)
+        -- id / nop: identity gate, skip (no semantic effect)
+        | "id",   _,            _             => none
+        | "cx",   [c, t],       []            => some (.cx c t)
+        | "cnot", [c, t],       []            => some (.cx c t)
+        | "cz",   [c, t],       []            => some (.cz c t)
+        | "swap", [i, j],       []            => some (.swap i j)
+        | "ccx",  [c1, c2, t],  []            => some (.ccx c1 c2 t)
+        | "toffoli", [c1,c2,t], []            => some (.ccx c1 c2 t)
+        | "rx",   [q],          [θ]           => some (.rx θ q)
+        | "ry",   [q],          [θ]           => some (.ry θ q)
+        | "rz",   [q],          [θ]           => some (.rz θ q)
+        -- u1/p: phase gate = RZ(λ); u2/u3: universal gates
+        | "u1",   [q],          [θ]           => some (.rz θ q)
+        | "p",    [q],          [θ]           => some (.rz θ q)
+        | "u2",   [q],          [φ, lam]      => some (.u3 1.5707963267948966 φ lam q)
+        | "u3",   [q],          [θ, φ, lam]   => some (.u3 θ φ lam q)
+        -- Controlled single-qubit gates
+        | "ch",   [c, t],       []            => some (.ch c t)
+        | "cy",   [c, t],       []            => some (.cy c t)
+        -- Controlled rotation gates
+        | "cp",   [c, t],       [θ]           => some (.cp θ c t)
+        | "crz",  [c, t],       [θ]           => some (.crz θ c t)
+        -- Two-qubit rotation gates
+        | "rzz",  [i, j],       [θ]           => some (.rzz θ i j)
+        | "rxx",  [i, j],       [θ]           => some (.rxx θ i j)
+        | "ryy",  [i, j],       [θ]           => some (.ryy θ i j)
+        | name,   _,            _             => some (.skipped name)
       (gate.map .inl, s4)
 
 -- ---------------------------------------------------------------------------

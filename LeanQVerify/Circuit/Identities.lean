@@ -31,9 +31,9 @@ open QCircuit
 
 /-- Applying Hadamard twice recovers the identity. -/
 theorem H_H_eq_id (n : ℕ) (i : Fin n) :
-    (ofGate (.H i) ++ ofGate (.H i)) ≅ QCircuit.id := by
-  unfold equiv QCircuit.id ofGate
-  simp only [denote_append, denote, denote_empty, Gate.matrix,
+    (ofGate (.H i) ++ ofGate (.H i)) ≅ QCircuit.identity := by
+  unfold equiv QCircuit.identity ofGate
+  simp only [denote_seq, denote, denote_empty, Gate.matrix,
              Matrix.mul_one, Matrix.one_mul]
   exact embedGate1_self_inverse n i H_mat H_mat_unitary
 
@@ -43,9 +43,9 @@ theorem H_H_eq_id (n : ℕ) (i : Fin n) :
 
 /-- Pauli X is its own inverse. -/
 theorem X_X_eq_id (n : ℕ) (i : Fin n) :
-    (ofGate (.X i) ++ ofGate (.X i)) ≅ QCircuit.id := by
-  unfold equiv QCircuit.id ofGate
-  simp only [denote_append, denote, denote_empty, Gate.matrix,
+    (ofGate (.X i) ++ ofGate (.X i)) ≅ QCircuit.identity := by
+  unfold equiv QCircuit.identity ofGate
+  simp only [denote_seq, denote, denote_empty, Gate.matrix,
              Matrix.mul_one, Matrix.one_mul]
   exact embedGate1_self_inverse n i X_mat X_mat_unitary
 
@@ -55,9 +55,9 @@ theorem X_X_eq_id (n : ℕ) (i : Fin n) :
 
 /-- Pauli Z is its own inverse. -/
 theorem Z_Z_eq_id (n : ℕ) (i : Fin n) :
-    (ofGate (.Z i) ++ ofGate (.Z i)) ≅ QCircuit.id := by
-  unfold equiv QCircuit.id ofGate
-  simp only [denote_append, denote, denote_empty, Gate.matrix,
+    (ofGate (.Z i) ++ ofGate (.Z i)) ≅ QCircuit.identity := by
+  unfold equiv QCircuit.identity ofGate
+  simp only [denote_seq, denote, denote_empty, Gate.matrix,
              Matrix.mul_one, Matrix.one_mul]
   exact embedGate1_self_inverse n i Z_mat Z_mat_unitary
 
@@ -67,9 +67,9 @@ theorem Z_Z_eq_id (n : ℕ) (i : Fin n) :
 
 /-- Pauli Y is its own inverse. -/
 theorem Y_Y_eq_id (n : ℕ) (i : Fin n) :
-    (ofGate (.Y i) ++ ofGate (.Y i)) ≅ QCircuit.id := by
-  unfold equiv QCircuit.id ofGate
-  simp only [denote_append, denote, denote_empty, Gate.matrix,
+    (ofGate (.Y i) ++ ofGate (.Y i)) ≅ QCircuit.identity := by
+  unfold equiv QCircuit.identity ofGate
+  simp only [denote_seq, denote, denote_empty, Gate.matrix,
              Matrix.mul_one, Matrix.one_mul]
   exact embedGate1_self_inverse n i Y_mat Y_mat_unitary
 
@@ -79,9 +79,9 @@ theorem Y_Y_eq_id (n : ℕ) (i : Fin n) :
 
 /-- CNOT applied twice recovers the identity. -/
 theorem CNOT_CNOT_eq_id (n : ℕ) (c t : Fin n) (hct : c ≠ t) :
-    (ofGate (.CNOT c t) ++ ofGate (.CNOT c t)) ≅ QCircuit.id := by
-  unfold equiv QCircuit.id ofGate
-  simp only [denote_append, denote, denote_empty, Gate.matrix,
+    (ofGate (.CNOT c t) ++ ofGate (.CNOT c t)) ≅ QCircuit.identity := by
+  unfold equiv QCircuit.identity ofGate
+  simp only [denote_seq, denote, denote_empty, Gate.matrix,
              Matrix.mul_one, Matrix.one_mul]
   exact embedCNOT_self_mul n c t hct
 
@@ -96,25 +96,25 @@ private lemma sqrt2_sq_C : ((Real.sqrt 2 : ℝ) : ℂ) * Real.sqrt 2 = 2 :=
   by exact_mod_cast Real.mul_self_sqrt (by norm_num)
 
 private lemma H_X_H_mat : H_mat * (X_mat * H_mat) = Z_mat := by
-  ext ⟨a, ha⟩ ⟨b, hb⟩
-  interval_cases a <;> interval_cases b <;>
-    simp only [Matrix.mul_apply, Fin.sum_univ_two, H_mat, X_mat, Z_mat,
-      Matrix.cons_val_zero, Matrix.cons_val_one, Matrix.head_cons, Matrix.cons_val'] <;>
-    (push_cast; field_simp [sqrt2_ne_zero_C, sqrt2_sq_C])
+  have hinv : ((Real.sqrt 2 : ℝ) : ℂ)⁻¹ * ((Real.sqrt 2 : ℝ) : ℂ)⁻¹ = (2 : ℂ)⁻¹ := by
+    rw [← mul_inv, sqrt2_sq_C]
+  ext i j; fin_cases i <;> fin_cases j
+  all_goals simp [H_mat, X_mat, Z_mat, Matrix.mul_apply, Fin.sum_univ_two]
+  all_goals (rw [hinv]; norm_num)
 
 private lemma H_Z_H_mat : H_mat * (Z_mat * H_mat) = X_mat := by
-  ext ⟨a, ha⟩ ⟨b, hb⟩
-  interval_cases a <;> interval_cases b <;>
-    simp only [Matrix.mul_apply, Fin.sum_univ_two, H_mat, X_mat, Z_mat,
-      Matrix.cons_val_zero, Matrix.cons_val_one, Matrix.head_cons, Matrix.cons_val'] <;>
-    (push_cast; field_simp [sqrt2_ne_zero_C, sqrt2_sq_C])
+  have hinv : ((Real.sqrt 2 : ℝ) : ℂ)⁻¹ * ((Real.sqrt 2 : ℝ) : ℂ)⁻¹ = (2 : ℂ)⁻¹ := by
+    rw [← mul_inv, sqrt2_sq_C]
+  ext i j; fin_cases i <;> fin_cases j
+  all_goals simp [H_mat, X_mat, Z_mat, Matrix.mul_apply, Fin.sum_univ_two]
+  all_goals (rw [hinv]; norm_num)
 
 /-- The Hadamard gate conjugates X to Z. -/
 theorem H_X_H_eq_Z (n : ℕ) (i : Fin n) :
     (ofGate (.H i) ++ ofGate (.X i) ++ ofGate (.H i)) ≅ ofGate (.Z i) := by
   unfold equiv ofGate
-  simp only [denote_append, denote, denote_empty, Gate.matrix, Matrix.mul_one, Matrix.one_mul]
-  rw [mul_assoc, embedGate1_mul, embedGate1_mul, H_X_H_mat]
+  simp only [denote_seq, denote, denote_empty, Gate.matrix, Matrix.mul_one, Matrix.one_mul]
+  rw [embedGate1_mul, embedGate1_mul, H_X_H_mat]
 
 -- ---------------------------------------------------------------------------
 -- H Z H = X
@@ -124,8 +124,8 @@ theorem H_X_H_eq_Z (n : ℕ) (i : Fin n) :
 theorem H_Z_H_eq_X (n : ℕ) (i : Fin n) :
     (ofGate (.H i) ++ ofGate (.Z i) ++ ofGate (.H i)) ≅ ofGate (.X i) := by
   unfold equiv ofGate
-  simp only [denote_append, denote, denote_empty, Gate.matrix, Matrix.mul_one, Matrix.one_mul]
-  rw [mul_assoc, embedGate1_mul, embedGate1_mul, H_Z_H_mat]
+  simp only [denote_seq, denote, denote_empty, Gate.matrix, Matrix.mul_one, Matrix.one_mul]
+  rw [embedGate1_mul, embedGate1_mul, H_Z_H_mat]
 
 -- ---------------------------------------------------------------------------
 -- Helper lemmas for SWAP = three CNOTs
@@ -219,7 +219,7 @@ theorem SWAP_eq_three_CNOTs (n : ℕ) (i j : Fin n) (h : i ≠ j) :
     ofGate (.SWAP i j) ≅
     (ofGate (.CNOT i j) ++ ofGate (.CNOT j i) ++ ofGate (.CNOT i j)) := by
   unfold equiv ofGate
-  simp only [denote_append, denote, denote_empty, Gate.matrix,
+  simp only [denote_seq, denote, denote_empty, Gate.matrix,
              Matrix.mul_one, Matrix.one_mul]
   ext a b
   simp only [Matrix.mul_apply, embedSWAP, embedCNOT]
@@ -245,32 +245,28 @@ theorem SWAP_eq_three_CNOTs (n : ℕ) (i j : Fin n) (h : i ≠ j) :
   have hbit : (if a2v.testBit i.val then a2v ^^^ (1 <<< j.val) else a2v) =
               setBit (setBit a.val i.val (a.val.testBit j.val)) j.val (a.val.testBit i.val) :=
     cnot3_eq_swap_nat i.val j.val hij_val a.val
-  -- Collapse nested sums: outer (over x, unique value a2v) then inner (over y, unique value a1v).
-  -- Matrix product is ((CNOT_ij * CNOT_ji) * CNOT_ij), so outer x = CNOT_ji(CNOT_ij(a)) = a2v
-  -- and inner y = CNOT_ij(a) = a1v.
+  -- Collapse nested sums: outer (over x, unique value a1v) then inner (over y, unique value a2v).
+  -- denote_seq gives product CNOT_ij * (CNOT_ji * CNOT_ij); outer sum is over CNOT_ij[a][x]
+  -- which collapses to x = a1v = CNOT_ij(a), inner sum collapses to y = a2v = CNOT_ji(a1v).
   symm
-  rw [Finset.sum_eq_single (⟨a2v, ha2_lt⟩ : Fin (2 ^ n))]
-  · -- Unique outer term x = a2v
+  rw [Finset.sum_eq_single (⟨a1v, ha1_lt⟩ : Fin (2 ^ n))]
+  · -- Unique outer term x = a1v
     simp only [Fin.val]
-    rw [Finset.sum_eq_single (⟨a1v, ha1_lt⟩ : Fin (2 ^ n))]
-    · -- Unique inner term y = a1v: both conditions hold by rfl, then use hbit
-      simp only [ite_true, if_true, one_mul, hbit]
-    · -- Inner uniqueness: y ≠ a1v → CNOT_ij[a][y] = 0
+    rw [Finset.sum_eq_single (⟨a2v, ha2_lt⟩ : Fin (2 ^ n))]
+    · -- Unique inner term y = a2v: condition a2v = a2v holds by rfl (after Fin.val simp
+      -- the expanded form if a1v.testBit j then ... appears; if_pos rfl closes it)
+      have ha2_eq : a2v = if a1v.testBit ↑j = true then a1v ^^^ 1 <<< ↑i else a1v := rfl
+      simp only [if_pos ha2_eq, ite_true, one_mul, hbit]
+    · -- Inner uniqueness: y ≠ a2v → CNOT_ji[a1v][y] = 0
       intro y _ hy
-      simp [show y.val ≠ a1v from fun heq => hy (Fin.ext heq)]
+      have hy_ne : y.val ≠ if a1v.testBit ↑j = true then a1v ^^^ 1 <<< ↑i else a1v :=
+        fun h => hy (Fin.ext h)
+      simp only [if_neg hy_ne, zero_mul]
     · simp
-  · -- Outer uniqueness: x ≠ a2v → (Σ_y CNOT_ij[a][y] * CNOT_ji[y][x]) * CNOT_ij[x][b] = 0
+  · -- Outer uniqueness: x ≠ a1v → CNOT_ij[a][x] = 0, so whole product is 0
     intro x _ hx
-    have hx_ne : x.val ≠ a2v := fun heq => hx (Fin.ext heq)
-    apply mul_eq_zero_of_left
-    apply Finset.sum_eq_zero
-    intro y _
-    rcases eq_or_ne y.val a1v with h1 | h1
-    · -- y = a1v: CNOT_ij[a][a1v] = 1, but CNOT_ji[a1v][x] = if x = a2v then 1 else 0 = 0
-      simp only [Fin.val, h1, if_pos rfl, one_mul]
-      simp [hx_ne]
-    · -- y ≠ a1v: CNOT_ij[a][y] = 0
-      simp [h1]
+    have hx_ne : x.val ≠ a1v := fun heq => hx (Fin.ext heq)
+    simp [hx_ne]
   · simp
 
 -- ---------------------------------------------------------------------------
@@ -279,9 +275,9 @@ theorem SWAP_eq_three_CNOTs (n : ℕ) (i j : Fin n) (h : i ≠ j) :
 
 /-- Rz with angle 0 is the identity. -/
 theorem RZ_zero_eq_id (n : ℕ) (i : Fin n) :
-    ofGate (.RZ 0 i) ≅ QCircuit.id := by
-  unfold equiv QCircuit.id ofGate
-  simp only [denote_append, denote, denote_empty, Gate.matrix,
+    ofGate (.RZ 0 i) ≅ QCircuit.identity := by
+  unfold equiv QCircuit.identity ofGate
+  simp only [denote_seq, denote, denote_empty, Gate.matrix,
              Matrix.mul_one, Matrix.one_mul]
   rw [show embedGate1 n i (Rz_mat 0) = 1 from by
     rw [Rz_zero_id, embedGate1_one]]
@@ -294,7 +290,7 @@ theorem RZ_zero_eq_id (n : ℕ) (i : Fin n) :
 theorem RZ_add (n : ℕ) (i : Fin n) (θ φ : ℝ) :
     (ofGate (.RZ θ i) ++ ofGate (.RZ φ i)) ≅ ofGate (.RZ (θ + φ) i) := by
   unfold equiv ofGate
-  simp only [denote_append, denote, denote_empty, Gate.matrix,
+  simp only [denote_seq, denote, denote_empty, Gate.matrix,
              Matrix.mul_one, Matrix.one_mul]
   rw [embedGate1_mul, Rz_mat_add, add_comm]
 

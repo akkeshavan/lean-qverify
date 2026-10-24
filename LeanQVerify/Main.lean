@@ -1,25 +1,32 @@
 import LeanQVerify.QASM.Elaborator
+import LeanQVerify.QASM.Serializer
 
 /-!
 # lean-qverify-check  —  CLI entry point
 
-Usage:
-    lean-qverify-check <circuit.qasm>
+## Usage
 
-Reads an OpenQASM 3 file, elaborates it into a `QCircuit n`, and prints:
-  - The number of qubits and gates
-  - Any parse / elaboration warnings
-  - A JSON summary written to stdout so the Python bridge can consume it
+```
+lean-qverify-check <circuit.qasm>
+```
+Parse and elaborate a QASM file; print a JSON summary.
 
-Exit codes:
-  0  success (file parsed and elaborated; warnings are non-fatal)
+```
+lean-qverify-check --emit-lean <circuit.qasm> [<defName>]
+```
+Emit a Lean `noncomputable def` for the circuit.  `defName` defaults to
+`importedCircuit`.  Output is valid Lean 4 source that can be imported and
+used in proofs.
+
+## Exit codes
+
+  0  success
   1  usage error
   2  file not found / read error
 -/
 
 -- ---------------------------------------------------------------------------
--- JSON serialisation  (minimal hand-rolled; Lean's Std has Json but we keep
--- this dependency-free for the Phase 1 build)
+-- JSON serialisation  (minimal hand-rolled)
 -- ---------------------------------------------------------------------------
 
 namespace LeanQVerify.QASM
@@ -50,19 +57,35 @@ def toJson (r : ElabResult) : String :=
 
 end LeanQVerify.QASM
 
+-- ---------------------------------------------------------------------------
+-- Main
+-- ---------------------------------------------------------------------------
+
 open LeanQVerify.QASM in
 def main (args : List String) : IO Unit := do
   match args with
-  | [path] =>
-    -- Read the QASM file
-    let source ← try
-      IO.FS.readFile path
-    catch e =>
-      IO.eprintln s!"Error reading '{path}': {e}"
-      IO.Process.exit 2
+  -- Default mode: parse and report JSON
+  | [path] => do
+    let source ← try IO.FS.readFile path
+      catch e => IO.eprintln s!"Error reading '{path}': {e}"; IO.Process.exit 2
     let res := parseAndElaborate source
-    -- Print JSON summary to stdout for the Python bridge
     IO.println (toJson res)
+
+  -- Emit-lean mode: output a Lean def for the circuit
+  | ["--emit-lean", path] =>
+    runEmitLean path "importedCircuit"
+  | ["--emit-lean", path, defName] =>
+    runEmitLean path defName
+
   | _ =>
-    IO.eprintln "Usage: lean-qverify-check <circuit.qasm>"
+    IO.eprintln "Usage:"
+    IO.eprintln "  lean-qverify-check <circuit.qasm>"
+    IO.eprintln "  lean-qverify-check --emit-lean <circuit.qasm> [<defName>]"
     IO.Process.exit 1
+
+where
+  runEmitLean (path defName : String) : IO Unit := do
+    let source ← try IO.FS.readFile path
+      catch e => IO.eprintln s!"Error reading '{path}': {e}"; IO.Process.exit 2
+    let prog := LeanQVerify.QASM.parse source
+    IO.println (LeanQVerify.QASM.serializeCircuit prog defName)

@@ -1,14 +1,18 @@
 """
 Bridge between Qiskit circuits and the Lean verifier.
 
-The bridge:
-1. Accepts a Qiskit QuantumCircuit.
-2. Exports it to OpenQASM 3 via Qiskit's built-in exporter.
-3. Writes the QASM to a temp file.
-4. Invokes the `lean-qverify-check` binary.
-5. Parses the JSON summary returned by the binary.
-6. Optionally runs a numerical counterexample search.
-7. Returns a VerifyResult.
+The bridge has two modes:
+
+  parse mode (default):
+    Calls lean-qverify-check to parse and elaborate the circuit.
+    Returns Verdict.PARSED — the circuit is well-formed but no spec has been
+    kernel-checked.  This is NOT a proof.
+
+  prove mode (via verify_circuit_spec):
+    Calls lean-qverify-check --prove with a CircuitSpec.
+    Generates a Lean theorem file and invokes Lean's kernel.
+    Returns Verdict.STRUCT_PROVED (structural spec kernel-checked) or
+    Verdict.PROVED (semantic spec kernel-checked), or Verdict.FAILED.
 """
 
 from __future__ import annotations
@@ -44,10 +48,12 @@ def _circuit_to_qasm(qc) -> str:
     """Export a Qiskit circuit to an OpenQASM 3 string."""
     try:
         from qiskit.qasm3 import dumps  # type: ignore
-        return dumps(qc)
     except ImportError:
-        # Older Qiskit versions: fall back to QASM 2
-        return qc.qasm()
+        raise ImportError(
+            "qiskit.qasm3 not found. lean-qverify requires Qiskit >= 1.0. "
+            "Install with: pip install qiskit>=1.0"
+        ) from None
+    return dumps(qc)
 
 
 def verify_circuit(
@@ -57,22 +63,29 @@ def verify_circuit(
     timeout: int = 60,
 ) -> VerifyResult:
     """
-    Verify a Qiskit QuantumCircuit using the Lean formal verifier.
+    Parse and elaborate a Qiskit QuantumCircuit via the Lean verifier.
+
+    This function parses the circuit and returns structural information
+    (qubit count, gate count, warnings).  The verdict will be
+    ``Verdict.PARSED`` — the circuit is well-formed but no specification
+    has been kernel-checked.
+
+    To kernel-check a formal specification, use ``verify_circuit_spec``.
 
     Parameters
     ----------
     qc:
-        A Qiskit QuantumCircuit to verify.
+        A Qiskit QuantumCircuit to parse.
     run_counterexample:
-        If True and Lean reports a failure, attempt a numerical counterexample
-        search using the GPU-aware Aer simulator.
+        If True and parsing reports warnings, attempt a numerical
+        counterexample search using the GPU-aware Aer simulator.
     timeout:
         Maximum seconds to wait for the Lean binary.
 
     Returns
     -------
-    VerifyResult with verdict, qubit/gate counts, warnings, and any
-    counterexample found.
+    VerifyResult with verdict PARSED (or WARNING/ERROR), qubit/gate counts,
+    warnings, and any counterexample found.
     """
     binary = _find_binary()
     if binary is None:
@@ -97,7 +110,6 @@ def verify_circuit(
             capture_output=True, text=True, timeout=timeout,
         )
     except subprocess.TimeoutExpired:
-        tmp_path.unlink(missing_ok=True)
         return VerifyResult(
             verdict=Verdict.ERROR,
             error_msg=f"lean-qverify-check timed out after {timeout}s",
@@ -128,11 +140,15 @@ def verify_circuit(
     n_gates   = summary.get("nGates",  0)
     warnings  = summary.get("warnings", [])
 
-    # Determine verdict from warnings (sorry stubs → WARNING, else PROVED)
-    if any("sorry" in w.lower() or "unsupported" in w.lower() for w in warnings):
+    # Parse-only path: circuit was elaborated but no spec was kernel-checked.
+    # Report PARSED (not PROVED — nothing has been proved yet).
+    # WARNING if any gate angle is unrecognised (semantic proofs would use sorry)
+    # or if any gate was skipped (unsupported syntax).
+    _warning_keywords = ("not a recognised", "unsupported gate skipped")
+    if any(any(kw in w for kw in _warning_keywords) for w in warnings):
         verdict = Verdict.WARNING
     else:
-        verdict = Verdict.PROVED
+        verdict = Verdict.PARSED
 
     result = VerifyResult(
         verdict=verdict,
@@ -147,6 +163,60 @@ def verify_circuit(
         result.counterexample = _search_counterexample(qc, n_qubits)
 
     return result
+
+
+def verify_circuit_spec(
+    qc,
+    spec,
+    *,
+    timeout: int = 120,
+) -> VerifyResult:
+    """
+    Kernel-check a structural specification for a Qiskit QuantumCircuit.
+
+    This is the genuine verification path: Lean's kernel checks a theorem
+    about the imported circuit against the supplied spec.
+
+    Parameters
+    ----------
+    qc:
+        A Qiskit QuantumCircuit.
+    spec:
+        A ``StructuralSpec`` (gate count, CNOT count, depth, RZ count).
+        Import from ``lean_qverify.prover``.
+    timeout:
+        Seconds to wait for Lean's kernel.
+
+    Returns
+    -------
+    VerifyResult with verdict STRUCT_PROVED (kernel-checked) or FAILED.
+    """
+    from .prover import verify_structural_spec, StructuralSpec
+
+    if not isinstance(spec, StructuralSpec):
+        return VerifyResult(
+            verdict=Verdict.ERROR,
+            error_msg="spec must be a StructuralSpec instance",
+        )
+
+    check_bin = _find_binary()
+    if check_bin is None:
+        return VerifyResult(
+            verdict=Verdict.ERROR,
+            error_msg="lean-qverify-check not found",
+        )
+
+    qasm_source = _circuit_to_qasm(qc)
+
+    proved, log = verify_structural_spec(
+        qasm_source, spec, timeout=timeout,
+        check_bin=check_bin,
+    )
+
+    return VerifyResult(
+        verdict=Verdict.STRUCT_PROVED if proved else Verdict.FAILED,
+        lean_output=log,
+    )
 
 
 def _search_counterexample(qc, n_qubits: int):

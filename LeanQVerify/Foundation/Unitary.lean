@@ -2,6 +2,7 @@ import Mathlib.LinearAlgebra.UnitaryGroup
 import Mathlib.Data.Matrix.Basic
 import Mathlib.Data.Complex.Basic
 import Mathlib.Analysis.SpecialFunctions.Trigonometric.Basic
+import Mathlib.Data.Nat.Bitwise
 
 /-!
 # Unitary Matrices and Gate Embeddings
@@ -27,20 +28,21 @@ open Matrix Complex Real
 
 -- ---------------------------------------------------------------------------
 -- Bit manipulation helpers
+-- These are part of the proof infrastructure for n-qubit embedding theorems.
+-- They appear in simp sets for concrete matrix computations; keep them public.
 -- ---------------------------------------------------------------------------
 
-/-- Extract bit i of a natural number as a Fin 2. -/
+/-- Extract bit `i` of `j` as a `Fin 2`. Proof infrastructure for embedding theorems. -/
 def natBit (j : ℕ) (i : ℕ) : Fin 2 :=
   ⟨if j.testBit i then 1 else 0, by split <;> norm_num⟩
 
-/-- Set bit i of j to value b, returning the new natural number.
-    Uses Nat.ldiff to clear bits (avoids Complement Nat). -/
+/-- Set bit `i` of `j` to `b`. Proof infrastructure for embedding theorems. -/
 def setBit (j : ℕ) (i : ℕ) (b : Bool) : ℕ :=
   if b then j ||| (1 <<< i) else Nat.ldiff j (1 <<< i)
 
 theorem natBit_lt2 (j i : ℕ) : (natBit j i).val < 2 := (natBit j i).isLt
 
-/-- Two natural numbers less than 2^n are equal iff all their bits 0..n-1 agree. -/
+/-- Two naturals below 2^n are equal iff all bits 0..n-1 agree. -/
 theorem natBit_ext {n : ℕ} {j k : Fin (2^n)}
     (h : ∀ l : Fin n, j.val.testBit l.val = k.val.testBit l.val) : j = k := by
   ext
@@ -127,11 +129,11 @@ theorem H_mat_unitary : H_mat * H_mat = 1 := by
     by exact_mod_cast Real.sqrt_ne_zero'.mpr (by norm_num)
   have hsqC : ((Real.sqrt 2 : ℝ) : ℂ) * Real.sqrt 2 = 2 :=
     by exact_mod_cast Real.mul_self_sqrt (by norm_num)
+  have hinv : ((Real.sqrt 2 : ℝ) : ℂ)⁻¹ * ((Real.sqrt 2 : ℝ) : ℂ)⁻¹ = (2 : ℂ)⁻¹ := by
+    rw [← mul_inv, hsqC]
   ext i j; fin_cases i <;> fin_cases j
-  all_goals simp only [H_mat, Matrix.mul_apply, Fin.sum_univ_two, Matrix.one_apply,
-    Matrix.cons_val_zero, Matrix.cons_val_one, Matrix.head_cons]
-  all_goals push_cast
-  all_goals field_simp [hcne, hsqC]
+  all_goals simp [H_mat, Matrix.mul_apply, Fin.sum_univ_two]
+  all_goals (rw [hinv]; norm_num)
 
 theorem Rz_mat_add (θ φ : ℝ) : Rz_mat θ * Rz_mat φ = Rz_mat (θ + φ) := by
   ext i j; fin_cases i <;> fin_cases j
@@ -158,9 +160,9 @@ instance instDecidableSameExcept (n : ℕ) (i : Fin n) (j k : Fin (2^n)) :
     Decidable (sameExcept n i j k) :=
   Fintype.decidableForallFintype
 
-/-- Embed a 2×2 gate G acting on qubit i into the 2^n × 2^n space.
-    Matrix element (j, k) is G[bit_i(j)][bit_i(k)] if all other bits of j
-    and k agree, and 0 otherwise. -/
+/-- Lift a single-qubit gate `G` acting on qubit `i` to the full `2^n × 2^n` space.
+    Acts as `G` on qubit `i` and as identity on all other qubits.
+    This is the tensor product `I ⊗ ⋯ ⊗ G ⊗ ⋯ ⊗ I` with `G` in position `i`. -/
 def embedGate1 (n : ℕ) (i : Fin n) (G : Matrix (Fin 2) (Fin 2) ℂ) :
     Matrix (Fin (2 ^ n)) (Fin (2 ^ n)) ℂ :=
   fun j k =>
@@ -330,6 +332,17 @@ theorem embedGate1_self_inverse (n : ℕ) (i : Fin n) (G : Matrix (Fin 2) (Fin 2
 theorem embedGate1_one' (n : ℕ) (i : Fin n) :
     embedGate1 n i (1 : Matrix (Fin 2) (Fin 2) ℂ) = 1 := embedGate1_one n i
 
+/-- For a single-qubit system, embedding a 2×2 gate at qubit 0 equals the gate itself. -/
+lemma embedGate1_one_qubit (G : Matrix (Fin 2) (Fin 2) ℂ) :
+    embedGate1 1 ⟨0, by norm_num⟩ G = G := by
+  funext j k
+  simp only [embedGate1]
+  have hs : sameExcept 1 ⟨0, by norm_num⟩ j k := fun l hl =>
+    absurd (Fin.fin_one_eq_zero l) hl
+  simp only [if_pos hs]
+  have hnat : ∀ (x : Fin (2 ^ 1)), natBit x.val 0 = x := by decide
+  simp only [hnat]
+
 -- ---------------------------------------------------------------------------
 -- Two-qubit gate embeddings
 -- ---------------------------------------------------------------------------
@@ -458,5 +471,109 @@ theorem X_mat_self_adjoint : X_mat.conjTranspose = X_mat := by
   all_goals simp [Matrix.conjTranspose, X_mat, Matrix.vecHead,
     Matrix.cons_val_zero, Matrix.cons_val_one, Matrix.head_cons,
     Matrix.transpose_apply, star_zero, star_one]
+
+-- ---------------------------------------------------------------------------
+-- Universal single-qubit gate (U3)
+-- ---------------------------------------------------------------------------
+
+/-- U3(θ,φ,λ): universal single-qubit gate used by OpenQASM/Qiskit.
+    U3(π,0,π)=X; U3(π/2,0,π)=H; U3(0,0,λ)=Rz(λ) up to global phase. -/
+noncomputable def U3_mat (θ φ lam : ℝ) : Matrix (Fin 2) (Fin 2) ℂ :=
+  let c : ℂ := ↑(Real.cos (θ / 2))
+  let s : ℂ := ↑(Real.sin (θ / 2))
+  !![c, -(Complex.exp (I * ↑lam)) * s;
+     (Complex.exp (I * ↑φ)) * s, (Complex.exp (I * (↑φ + ↑lam))) * c]
+
+-- ---------------------------------------------------------------------------
+-- Controlled single-qubit gate embeddings
+-- ---------------------------------------------------------------------------
+
+/-- Condition: j and k agree on all bits except p and q. -/
+private def sameExcept2 (n : ℕ) (p q : Fin n) (j k : Fin (2^n)) : Prop :=
+  ∀ l : Fin n, l ≠ p → l ≠ q → j.val.testBit l.val = k.val.testBit l.val
+
+instance instDecidableSameExcept2 (n : ℕ) (p q : Fin n) (j k : Fin (2^n)) :
+    Decidable (sameExcept2 n p q j k) :=
+  Fintype.decidableForallFintype
+
+/-- Controlled-G gate: identity when control is |0⟩, applies G to target when control is |1⟩. -/
+def embedControlled1 (n : ℕ) (c t : Fin n) (G : Matrix (Fin 2) (Fin 2) ℂ) :
+    Matrix (Fin (2 ^ n)) (Fin (2 ^ n)) ℂ :=
+  fun j k =>
+    if !j.val.testBit c.val
+    then if j = k then 1 else 0
+    else if sameExcept n t j k
+    then G (natBit j.val t.val) (natBit k.val t.val)
+    else 0
+
+-- ---------------------------------------------------------------------------
+-- Diagonal two-qubit gate embeddings
+-- ---------------------------------------------------------------------------
+
+/-- CP(θ): controlled-phase — applies e^{iθ} when both control and target are |1⟩. -/
+noncomputable def embedCP (n : ℕ) (c t : Fin n) (θ : ℝ) :
+    Matrix (Fin (2 ^ n)) (Fin (2 ^ n)) ℂ :=
+  fun j k =>
+    if j ≠ k then 0
+    else if j.val.testBit c.val && j.val.testBit t.val
+    then Complex.exp (I * ↑θ)
+    else 1
+
+/-- CRZ(θ): controlled-Rz — applies Rz(θ) to target when control is |1⟩. -/
+noncomputable def embedCRZ (n : ℕ) (c t : Fin n) (θ : ℝ) :
+    Matrix (Fin (2 ^ n)) (Fin (2 ^ n)) ℂ :=
+  fun j k =>
+    if j ≠ k then 0
+    else if !j.val.testBit c.val then 1
+    else if j.val.testBit t.val
+    then Complex.exp (I * (↑θ / 2))
+    else Complex.exp (-I * (↑θ / 2))
+
+/-- RZZ(θ) = exp(-i·θ/2·Z⊗Z): diagonal phase gate on qubit pair (p,q). -/
+noncomputable def embedRZZ (n : ℕ) (p q : Fin n) (θ : ℝ) :
+    Matrix (Fin (2 ^ n)) (Fin (2 ^ n)) ℂ :=
+  fun j k =>
+    if j ≠ k then 0
+    else if j.val.testBit p.val = j.val.testBit q.val
+    then Complex.exp (-I * (↑θ / 2))
+    else Complex.exp (I * (↑θ / 2))
+
+-- ---------------------------------------------------------------------------
+-- Non-diagonal two-qubit rotation embeddings
+-- ---------------------------------------------------------------------------
+
+/-- RXX(θ) = exp(-i·θ/2·X⊗X): couples basis states that differ in both qubits p and q. -/
+noncomputable def embedRXX (n : ℕ) (p q : Fin n) (θ : ℝ) :
+    Matrix (Fin (2 ^ n)) (Fin (2 ^ n)) ℂ :=
+  let c : ℂ := ↑(Real.cos (θ / 2))
+  let s : ℂ := ↑(Real.sin (θ / 2))
+  fun j k =>
+    if sameExcept2 n p q j k then
+      let bp_j := j.val.testBit p.val
+      let bq_j := j.val.testBit q.val
+      let bp_k := k.val.testBit p.val
+      let bq_k := k.val.testBit q.val
+      if bp_j = bp_k ∧ bq_j = bq_k then c
+      else if bp_j ≠ bp_k ∧ bq_j ≠ bq_k then -I * s
+      else 0
+    else 0
+
+/-- RYY(θ) = exp(-i·θ/2·Y⊗Y): like RXX but the off-diagonal sign depends on input parity. -/
+noncomputable def embedRYY (n : ℕ) (p q : Fin n) (θ : ℝ) :
+    Matrix (Fin (2 ^ n)) (Fin (2 ^ n)) ℂ :=
+  let c : ℂ := ↑(Real.cos (θ / 2))
+  let s : ℂ := ↑(Real.sin (θ / 2))
+  fun j k =>
+    if sameExcept2 n p q j k then
+      let bp_j := j.val.testBit p.val
+      let bq_j := j.val.testBit q.val
+      let bp_k := k.val.testBit p.val
+      let bq_k := k.val.testBit q.val
+      if bp_j = bp_k ∧ bq_j = bq_k then c
+      else if bp_j ≠ bp_k ∧ bq_j ≠ bq_k then
+        -- sign: +i when input bits are equal (00↔11), -i when unequal (01↔10)
+        if bp_j = bq_j then I * s else -I * s
+      else 0
+    else 0
 
 end LeanQVerify
