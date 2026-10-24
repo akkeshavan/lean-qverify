@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>lean-qverify — Formal Quantum Circuit Verification</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:       #0d1117;
+      --bg2:      #161b22;
+      --bg3:      #1c2128;
+      --border:   #30363d;
+      --text:     #e6edf3;
+      --muted:    #8b949e;
+      --accent:   #58a6ff;
+      --green:    #3fb950;
+      --purple:   #bc8cff;
+      --orange:   #f0883e;
+      --red:      #ff7b72;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-size: 16px;
+      line-height: 1.65;
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* ── Layout ── */
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 1.2rem 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      background: var(--bg);
+      z-index: 10;
+    }
+
+    header .logo {
+      font-family: 'Fira Code', monospace;
+      font-size: 1.1rem;
+      font-weight: 500;
+      color: var(--text);
+    }
+
+    header nav a {
+      margin-left: 1.5rem;
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+    header nav a:hover { color: var(--text); text-decoration: none; }
+
+    main { max-width: 900px; margin: 0 auto; padding: 0 2rem 6rem; }
+
+    section { padding: 4rem 0; border-bottom: 1px solid var(--border); }
+    section:last-child { border-bottom: none; }
+
+    h1 { font-size: 2.8rem; font-weight: 700; line-height: 1.2; margin-bottom: 1rem; }
+    h2 { font-size: 1.6rem; font-weight: 600; margin-bottom: 1rem; color: var(--text); }
+    h3 { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; color: var(--text); }
+    p  { margin-bottom: 1rem; color: var(--text); }
+    p.muted { color: var(--muted); font-size: 0.95rem; }
+
+    /* ── Hero ── */
+    #hero { padding-top: 5rem; }
+    #hero .badge {
+      display: inline-block;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 2rem;
+      padding: 0.25rem 0.85rem;
+      font-size: 0.8rem;
+      font-family: 'Fira Code', monospace;
+      color: var(--green);
+      margin-bottom: 1.5rem;
+    }
+    #hero h1 span { color: var(--accent); }
+    #hero .sub {
+      font-size: 1.15rem;
+      color: var(--muted);
+      max-width: 640px;
+      margin-bottom: 2rem;
+    }
+    .btn-row { display: flex; gap: 1rem; flex-wrap: wrap; }
+    .btn {
+      display: inline-block;
+      padding: 0.6rem 1.4rem;
+      border-radius: 6px;
+      font-size: 0.95rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.85; text-decoration: none; }
+    .btn-primary { background: var(--accent); color: #0d1117; }
+    .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+
+    /* ── Stat row ── */
+    .stats {
+      display: flex;
+      gap: 2rem;
+      flex-wrap: wrap;
+      margin-top: 3rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--border);
+    }
+    .stat-num { font-size: 2rem; font-weight: 700; color: var(--accent); font-family: 'Fira Code', monospace; }
+    .stat-lbl { font-size: 0.85rem; color: var(--muted); margin-top: 0.2rem; }
+
+    /* ── Code blocks ── */
+    pre {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.2rem 1.4rem;
+      overflow-x: auto;
+      font-family: 'Fira Code', monospace;
+      font-size: 0.88rem;
+      line-height: 1.6;
+      margin: 1.2rem 0;
+    }
+    code { font-family: 'Fira Code', monospace; font-size: 0.88em; }
+    p code, li code {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.1em 0.4em;
+      color: var(--text);
+    }
+
+    /* Syntax colours */
+    .kw  { color: var(--red); }
+    .ty  { color: var(--purple); }
+    .cm  { color: var(--muted); }
+    .str { color: var(--green); }
+    .fn  { color: var(--accent); }
+    .op  { color: var(--orange); }
+    .num { color: var(--green); }
+
+    /* ── Gap table ── */
+    .gap-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 1rem;
+      margin-top: 1.5rem;
+    }
+    @media (max-width: 640px) { .gap-grid { grid-template-columns: 1fr; } }
+    .gap-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.2rem;
+    }
+    .gap-card h3 { font-size: 0.95rem; margin-bottom: 0.4rem; }
+    .gap-card p { font-size: 0.88rem; color: var(--muted); margin: 0; }
+    .gap-card .tag {
+      display: inline-block;
+      font-size: 0.72rem;
+      font-family: 'Fira Code', monospace;
+      padding: 0.1rem 0.5rem;
+      border-radius: 3px;
+      margin-bottom: 0.6rem;
+    }
+    .tag-bad  { background: #3d1f1f; color: var(--red); }
+    .tag-good { background: #1a3d2b; color: var(--green); }
+
+    /* ── Install box ── */
+    .install-box {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-top: 1.5rem;
+    }
+    .install-box h3 { font-size: 0.9rem; color: var(--muted); text-transform: uppercase;
+      letter-spacing: 0.05em; margin-bottom: 0.8rem; }
+
+    /* ── Links section ── */
+    .link-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-top: 1.5rem;
+    }
+    .link-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      transition: border-color 0.15s;
+    }
+    .link-card:hover { border-color: var(--accent); text-decoration: none; }
+    .link-card .icon { font-size: 1.4rem; }
+    .link-card .title { font-size: 0.95rem; font-weight: 600; color: var(--text); }
+    .link-card .desc { font-size: 0.82rem; color: var(--muted); }
+
+    footer {
+      text-align: center;
+      padding: 2rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+      border-top: 1px solid var(--border);
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <span class="logo">lean-qverify</span>
+  <nav>
+    <a href="#gap">Why</a>
+    <a href="#dsl">DSL</a>
+    <a href="#python">Python</a>
+    <a href="#install">Install</a>
+    <a href="https://github.com/akkeshavan/lean-qverify">GitHub</a>
+  </nav>
+</header>
+
+<main>
+
+<!-- ── Hero ── -->
+<section id="hero">
+  <div class="badge">v0.1.0.0</div>
+  <h1>Formal verification for<br><span>quantum circuits</span></h1>
+  <p class="sub">
+    Write a circuit in Qiskit. State a property. Get a kernel-checked proof — or a concrete counterexample.
+    Powered by Lean 4 + Mathlib.
+  </p>
+  <div class="btn-row">
+    <a class="btn btn-primary" href="#install">Get started</a>
+    <a class="btn btn-outline" href="https://github.com/akkeshavan/lean-qverify">GitHub →</a>
+    <a class="btn btn-outline" href="https://github.com/akkeshavan/lean-qverify/blob/main/book/book.pdf">Book (PDF) →</a>
+  </div>
+
+  <div class="stats">
+    <div>
+      <div class="stat-num">40</div>
+      <div class="stat-lbl">kernel-checked theorems</div>
+    </div>
+    <div>
+      <div class="stat-num">12</div>
+      <div class="stat-lbl">book chapters</div>
+    </div>
+    <div>
+      <div class="stat-num">32</div>
+      <div class="stat-lbl">benchmark circuits</div>
+    </div>
+    <div>
+      <div class="stat-num">0</div>
+      <div class="stat-lbl">sorry stubs in proofs</div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Gap ── -->
+<section id="gap">
+  <h2>The gap this fills</h2>
+  <p>
+    Quantum programs are difficult to test. A misplaced CNOT or a rotation angle off by a factor of two produces
+    subtly wrong measurement statistics rather than a crash. The two existing options both fall short:
+  </p>
+
+  <div class="gap-grid">
+    <div class="gap-card">
+      <div class="tag tag-bad">numerical simulation</div>
+      <h3>Fast, no guarantees</h3>
+      <p>Qiskit Aer checks specific inputs. It cannot prove correctness for all inputs, and cannot scale past ~50 qubits.</p>
+    </div>
+    <div class="gap-card">
+      <div class="tag tag-bad">pen-and-paper proof</div>
+      <h3>Rigorous, impractical</h3>
+      <p>Hand-written LaTeX proofs are not machine-checked. Errors creep in; the trusted base is a human reviewer.</p>
+    </div>
+    <div class="gap-card">
+      <div class="tag tag-good">lean-qverify</div>
+      <h3>Formal, automated</h3>
+      <p>State properties as Lean theorems. Lean's kernel checks every step. Structural specs (gate count, depth) are proved automatically.</p>
+    </div>
+  </div>
+
+  <p style="margin-top:1.5rem;">
+    The trusted computing base is Lean's kernel (~3,000 lines of C++), not a simulation engine or a human.
+    A <code>STRUCT_PROVED</code> verdict is a mathematical certificate.
+  </p>
+</section>
+
+<!-- ── DSL ── -->
+<section id="dsl">
+  <h2>The DSL: circuits, specs, proofs</h2>
+  <p>
+    Circuits are typed values. The qubit count is in the type — out-of-bounds indices are impossible
+    at compile time.
+  </p>
+
+<pre><span class="kw">import</span> LeanQVerify
+
+<span class="kw">open</span> <span class="ty">LeanQVerify</span> <span class="ty">QCircuit</span> <span class="ty">CircuitSpec</span>
+
+<span class="cm">-- A 2-qubit Bell-state preparation circuit</span>
+<span class="cm">-- QCircuit 2 encodes the qubit count in the type</span>
+<span class="kw">def</span> <span class="fn">myBell</span> : <span class="ty">QCircuit</span> <span class="num">2</span> :=
+  .cons (.H ⟨<span class="num">0</span>, <span class="kw">by</span> norm_num⟩)
+  (.cons (.CNOT ⟨<span class="num">0</span>, <span class="kw">by</span> norm_num⟩ ⟨<span class="num">1</span>, <span class="kw">by</span> norm_num⟩)
+  .empty)</pre>
+
+  <p>Specs are first-class values. The <code>⊨</code> relation states that a circuit satisfies a spec:</p>
+
+<pre><span class="cm">-- Gate count: exactly 2 gates</span>
+<span class="kw">theorem</span> <span class="fn">myBell_twoGates</span> :
+    myBell <span class="op">⊨</span> .gateCount (<span class="kw">fun</span> _ => <span class="kw">true</span>) <span class="num">2</span> := <span class="kw">by</span>
+  simp [satisfies, countGates, myBell]
+
+<span class="cm">-- Depth: at most 2 layers</span>
+<span class="kw">theorem</span> <span class="fn">myBell_depth</span> :
+    myBell <span class="op">⊨</span> .maxDepth <span class="num">2</span> := <span class="kw">by</span>
+  simp [satisfies, depth, scheduleDepth, myBell, gateQubits]
+
+<span class="cm">-- Measurement probability: P(qubit 0 = 0 | |00⟩) = 1/2</span>
+<span class="kw">theorem</span> <span class="fn">myBell_entangled</span> :
+    myBell <span class="op">⊨</span> .measurementProb QState.ket00 <span class="num">0</span> <span class="kw">false</span> (<span class="num">1</span>/<span class="num">2</span>) :=
+  bellPrep_entangled</pre>
+
+  <h3 style="margin-top:2rem;">Gate identities</h3>
+  <p>Universal identities are proved once and reused. The H gate is its own inverse:</p>
+
+<pre><span class="cm">-- H ∘ H = I  (holds for all n qubits, any qubit index i)</span>
+<span class="kw">theorem</span> <span class="fn">H_H_eq_id</span> (n : <span class="ty">ℕ</span>) (i : <span class="ty">Fin</span> n) :
+    (ofGate (.H i) ++ ofGate (.H i)) <span class="op">≅</span> QCircuit.identity :=
+  embedGate1_self_inverse n i H_mat_unitary</pre>
+
+  <h3 style="margin-top:2rem;">Quantum Hoare Logic</h3>
+  <p>
+    The library includes a Quantum Hoare Logic over density matrices. Predicates are PSD operators;
+    the <code>HoareTriple A c B</code> type encodes the expectation-based semantics.
+  </p>
+
+<pre><span class="cm">-- Gate rule: if U†·A·U holds before, A holds after</span>
+<span class="kw">theorem</span> <span class="fn">H_gate_triple</span> (A : <span class="ty">QPred</span> <span class="num">1</span>) :
+    <span class="ty">HoareTriple</span> (A.conj _ H_gate1_unitary)
+                (ofGate (.H ⟨<span class="num">0</span>, <span class="kw">by</span> norm_num⟩)) A :=
+  hoare_gate A _ H_gate1_unitary</pre>
+
+  <h3 style="margin-top:2rem;">ZX-calculus</h3>
+  <p>
+    ZX diagrams are a first-class type. The spider fusion rule and certified circuit translation
+    are both proved.
+  </p>
+
+<pre><span class="cm">-- Spider fusion: Z(α) ⊚ Z(β) = Z(α+β)</span>
+<span class="kw">theorem</span> <span class="fn">zSpider_fusion</span> (α β : <span class="ty">ℝ</span>) :
+    <span class="ty">ZX</span>⟦zSpider α ⊚ zSpider β⟧ = <span class="ty">ZX</span>⟦zSpider (α + β)⟧ := ...
+
+<span class="cm">-- Circuit translation is semantics-preserving</span>
+<span class="kw">theorem</span> <span class="fn">circuitToZX₁_sound</span> (c : <span class="ty">QCircuit</span> <span class="num">1</span>) (hc : isStdCircuit₁ c) :
+    <span class="ty">ZX</span>⟦circuitToZX₁ c⟧ = c.denote := ...</pre>
+</section>
+
+<!-- ── Python ── -->
+<section id="python">
+  <h2>Python bridge</h2>
+  <p>
+    Circuits written in Qiskit export to OpenQASM 3, which the Lean parser converts into
+    a typed <code>QCircuit n</code> value. Structural specs are proved automatically — no Lean required.
+  </p>
+
+<pre><span class="kw">from</span> qiskit <span class="kw">import</span> QuantumCircuit
+<span class="kw">from</span> lean_qverify <span class="kw">import</span> verify_circuit_spec, CircuitSpec
+
+qc = QuantumCircuit(<span class="num">2</span>)
+qc.h(<span class="num">0</span>)
+qc.cx(<span class="num">0</span>, <span class="num">1</span>)
+
+<span class="cm"># Structural spec: automatically proved by Lean's kernel</span>
+result = verify_circuit_spec(qc, CircuitSpec.gate_count(total=<span class="num">2</span>))
+<span class="kw">print</span>(result.verdict)         <span class="cm"># STRUCT_PROVED</span>
+<span class="kw">print</span>(result.kernel_checked)  <span class="cm"># True</span></pre>
+
+  <p>
+    Structural specs (gate count, CNOT count, depth) are proved fully automatically.
+    Measurement-probability proofs require a hand-written Lean file — the bridge emits
+    the theorem statement; you provide the proof.
+  </p>
+
+<pre><span class="cm"># Check the QASM the parser will see</span>
+result = verify_circuit_spec(qc, CircuitSpec.max_depth(bound=<span class="num">2</span>))
+<span class="kw">if</span> result.warnings:
+    <span class="kw">print</span>(result.warnings)  <span class="cm"># unrecognised angles, unsupported gates</span></pre>
+
+  <p>
+    The trusted pipeline: Qiskit → OpenQASM 3 → Lean parser → theorem file → <code>lake env lean</code>.
+    When <code>kernel_checked</code> is <code>True</code>, Lean's kernel accepted every proof step.
+  </p>
+</section>
+
+<!-- ── Install ── -->
+<section id="install">
+  <h2>Install</h2>
+
+  <div class="install-box">
+    <h3>Lean library (Lake dependency)</h3>
+    <p>Add to your <code>lakefile.lean</code>:</p>
+<pre><span class="kw">require</span> «lean-qverify» <span class="kw">from</span> git
+  <span class="str">"https://github.com/akkeshavan/lean-qverify"</span> <span class="op">@</span> <span class="str">"v0.1.0.0"</span></pre>
+    <p class="muted" style="margin-top:0.5rem;">Lean 4 (v4.33.0-rc1) + Mathlib fetched automatically by Lake.</p>
+  </div>
+
+  <div class="install-box" style="margin-top:1rem;">
+    <h3>Python bridge</h3>
+<pre>git clone https://github.com/akkeshavan/lean-qverify.git
+cd lean-qverify
+pip install -e .          <span class="cm"># CPU counterexample search</span>
+pip install -e ".[gpu]"   <span class="cm"># + GPU support (CUDA 12, Linux only)</span></pre>
+    <p class="muted" style="margin-top:0.5rem;">Python ≥ 3.10. Qiskit ≥ 1.0 required for circuit export.</p>
+  </div>
+
+  <div class="install-box" style="margin-top:1rem;">
+    <h3>Build the library from source</h3>
+<pre>lake update          <span class="cm"># resolve Mathlib dependency</span>
+lake exe cache get   <span class="cm"># download prebuilt Mathlib oleans (~500 MB)</span>
+lake build           <span class="cm"># compile the library (~5 min)</span></pre>
+  </div>
+</section>
+
+<!-- ── Links ── -->
+<section id="links">
+  <h2>Links</h2>
+  <div class="link-grid">
+    <a class="link-card" href="https://github.com/akkeshavan/lean-qverify">
+      <div class="icon">⌥</div>
+      <div class="title">GitHub repository</div>
+      <div class="desc">Source, issues, contributions</div>
+    </a>
+    <a class="link-card" href="https://github.com/akkeshavan/lean-qverify/blob/main/README.md">
+      <div class="icon">📖</div>
+      <div class="title">README</div>
+      <div class="desc">Setup, usage, theorem table</div>
+    </a>
+    <a class="link-card" href="https://github.com/akkeshavan/lean-qverify/blob/main/book/book.pdf">
+      <div class="icon">📄</div>
+      <div class="title">Book (PDF)</div>
+      <div class="desc">12 chapters, worked examples</div>
+    </a>
+    <a class="link-card" href="https://github.com/akkeshavan/lean-qverify/tree/main/theorems">
+      <div class="icon">✓</div>
+      <div class="title">Theorem artifact</div>
+      <div class="desc">Independent verification of all 40 proofs</div>
+    </a>
+    <a class="link-card" href="https://github.com/akkeshavan/lean-qverify/releases/tag/v0.1.0.0">
+      <div class="icon">🏷</div>
+      <div class="title">Release v0.1.0.0</div>
+      <div class="desc">Changelog and release notes</div>
+    </a>
+    <a class="link-card" href="https://reservoir.lean-lang.org/">
+      <div class="icon">🌊</div>
+      <div class="title">Lean Reservoir</div>
+      <div class="desc">Lean package registry</div>
+    </a>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  lean-qverify v0.1.0.0 &mdash; Lean 4 + Mathlib &mdash;
+  <a href="https://github.com/akkeshavan/lean-qverify/blob/main/LICENSE">License</a>
+</footer>
+
+</body>
+</html>
