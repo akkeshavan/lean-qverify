@@ -4,6 +4,15 @@ Formal verification of quantum circuits, connecting Qiskit to Lean 4 + Mathlib.
 
 Write a quantum circuit in Qiskit, export it to OpenQASM 3, and have Lean's proof kernel verify it satisfies a formal specification — or get a concrete numerical counterexample when it doesn't.
 
+**Two components, two directories:**
+
+| Directory | Language | What it is |
+|---|---|---|
+| `LeanQVerify/` | Lean 4 | The formal library: gate types, circuit semantics, specification language, proved theorems, QASM parser, ZX-calculus, Hoare logic. Import this in your Lean projects. |
+| `lean_qverify/` | Python | The bridge package: exports Qiskit circuits to QASM, calls the compiled `lean-qverify-check` binary, parses results, runs counterexample search. Install via `pip`. |
+
+They are independent. The Python package shells out to a binary built from the Lean library — it does not import Lean code directly. The naming follows each language's convention (PascalCase for Lean modules, snake_case for Python packages).
+
 ---
 
 ## The approach
