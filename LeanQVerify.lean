@@ -21,3 +21,5 @@ import LeanQVerify.ZX.Rules
 import LeanQVerify.ZX.CircuitToZX
 import LeanQVerify.ZX.GateTranslation
 import LeanQVerify.Foundation.HoareLogic
+import LeanQVerify.Tactic.EvalCircuit
+import LeanQVerify.Tactic.VerifyProb
