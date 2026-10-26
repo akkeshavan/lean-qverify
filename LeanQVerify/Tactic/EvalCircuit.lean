@@ -45,7 +45,7 @@ theorem evalCircuit_empty {n : ℕ} (ψ : Fin (2^n) → ℂ) :
 theorem evalCircuit_cons {n : ℕ} (g : Gate n) (c : QCircuit n) (ψ : Fin (2^n) → ℂ) :
     evalCircuit (.cons g c) ψ = evalCircuit c (g.matrix.mulVec ψ) := rfl
 
--- ── Bridge theorem ─────────────────────────────────────────────────────────────
+-- ── Bridge theorems ───────────────────────────────────────────────────────────
 
 /-- Gate-by-gate evaluation is semantically equivalent to `QCircuit.applyTo`. -/
 theorem evalCircuit_correct {n : ℕ} (c : QCircuit n) (ψ : Fin (2^n) → ℂ) :
@@ -57,5 +57,17 @@ theorem evalCircuit_correct {n : ℕ} (c : QCircuit n) (ψ : Fin (2^n) → ℂ) 
     rw [evalCircuit_cons, ih]
     simp only [QCircuit.applyTo, QCircuit.denote_cons]
     exact Matrix.mulVec_mulVec ψ c'.denote g.matrix
+
+/-- Evaluation distributes over circuit append: run c₁ then c₂ step-by-step.
+    This lets `verify_prob` handle `++` circuits without building the full matrix product. -/
+@[simp]
+theorem evalCircuit_append {n : ℕ} (c₁ c₂ : QCircuit n) (ψ : Fin (2^n) → ℂ) :
+    evalCircuit (c₁ ++ c₂) ψ = evalCircuit c₂ (evalCircuit c₁ ψ) := by
+  simp only [evalCircuit_correct, QCircuit.applyTo, QCircuit.denote_seq]
+  exact (Matrix.mulVec_mulVec ψ c₂.denote c₁.denote).symm
+
+/-- `applyTo` equals gate-by-gate evaluation; exposes `evalCircuit` to simp. -/
+theorem applyTo_eq_evalCircuit {n : ℕ} (c : QCircuit n) (ψ : Fin (2^n) → ℂ) :
+    c.applyTo ψ = evalCircuit c ψ := (evalCircuit_correct c ψ).symm
 
 end LeanQVerify

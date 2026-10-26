@@ -153,7 +153,7 @@ theorem Rz_zero_id : Rz_mat 0 = 1 := by
 -- ---------------------------------------------------------------------------
 
 /-- Condition shorthand: j and k agree on all bits except i. -/
-private def sameExcept (n : ℕ) (i : Fin n) (j k : Fin (2^n)) : Prop :=
+def sameExcept (n : ℕ) (i : Fin n) (j k : Fin (2^n)) : Prop :=
   ∀ l : Fin n, l ≠ i → j.val.testBit l.val = k.val.testBit l.val
 
 instance instDecidableSameExcept (n : ℕ) (i : Fin n) (j k : Fin (2^n)) :
