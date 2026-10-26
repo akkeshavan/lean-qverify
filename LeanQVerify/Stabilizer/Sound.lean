@@ -41,13 +41,16 @@ open Matrix Complex QCircuit CircuitSpec
 
 -- ── Represents predicate ──────────────────────────────────────────────────────
 
+-- Maps stabilizer index i : Fin n to tableau row n+i : Fin (2*n)
+def stabRow {n : ℕ} (i : Fin n) : Fin (2 * n) := ⟨n + i.val, by omega⟩
+
 /-- Tableau t represents state ψ if every stabilizer row (n..2n-1)
     stabilizes ψ: pauliOp(phase, x, z) *ᵥ ψ = ψ. -/
 def Represents {n : ℕ} (t : StabTableau n) (ψ : Fin (2^n) → ℂ) : Prop :=
   ∀ i : Fin n,
-    pauliOp (t.phase ⟨n + i.val, by omega⟩)
-            (t.x    ⟨n + i.val, by omega⟩)
-            (t.z    ⟨n + i.val, by omega⟩) *ᵥ ψ = ψ
+    pauliOp (t.phase (stabRow i))
+            (t.x    (stabRow i))
+            (t.z    (stabRow i)) *ᵥ ψ = ψ
 
 -- ── Initial state ─────────────────────────────────────────────────────────────
 
@@ -57,78 +60,171 @@ def ket0Vec (n : ℕ) : Fin (2^n) → ℂ := fun k => if k.val = 0 then 1 else 0
 /-- The initial tableau represents |0^n⟩. -/
 theorem ket0n_represents (n : ℕ) : Represents (ket0n n) (ket0Vec n) := by
   intro i
-  simp only [pauliOp, ket0n, Represents]
+  simp only [pauliOp, ket0n, stabRow]
   sorry
 
 -- ── Gate-by-gate Represents update ───────────────────────────────────────────
 
--- Helper: extract stabilizer row index from Fin n
-private def stabRow {n : ℕ} (i : Fin n) : Fin (2 * n) :=
-  ⟨n + i.val, by omega⟩
+-- S†·S = I, needed for the S-gate mulVec step
+private lemma S_mat_adj_self : S_mat.conjTranspose * S_mat = (1 : Matrix (Fin 2) (Fin 2) ℂ) := by
+  ext i j; fin_cases i <;> fin_cases j
+  all_goals simp [S_mat, Matrix.conjTranspose, Matrix.transpose_apply, Matrix.mul_apply,
+    Fin.sum_univ_two, Matrix.cons_val_zero, Matrix.cons_val_one]
 
-/-- Stabilizer preservation after H gate.
+-- General step: if G'·G = I and P·ψ = ψ then (G·P·G')·(G·ψ) = G·ψ
+private lemma stabStep_mulVec {m : ℕ}
+    (G G' : Matrix (Fin (2^m)) (Fin (2^m)) ℂ) (hGG' : G' * G = 1)
+    (P : Matrix (Fin (2^m)) (Fin (2^m)) ℂ) (ψ : Fin (2^m) → ℂ)
+    (hstab : P *ᵥ ψ = ψ) :
+    (G * P * G') *ᵥ (G *ᵥ ψ) = G *ᵥ ψ := by
+  rw [Matrix.mulVec_mulVec,
+      show (G * P * G') * G = G * P from by simp only [mul_assoc, hGG', mul_one],
+      ← Matrix.mulVec_mulVec, hstab]
 
-    If each stabilizer row of t stabilizes ψ, then after stepH a, each
-    stabilizer row of the new tableau stabilizes H_a |ψ⟩.
-
-    The key algebraic identity is:
-      (H_a) · pauliOp r x z · (H_a) = pauliOp r' x' z'
-    where x', z', r' are the H-updated values (A-G Table 1). -/
+/-- Stabilizer preservation after H gate. -/
 theorem Represents.stepH {n : ℕ} (a : Fin n) (t : StabTableau n) (ψ : Fin (2^n) → ℂ)
     (h : Represents t ψ) :
     Represents (t.stepH a) (embedGate1 n a H_mat *ᵥ ψ) := by
   intro i
-  -- The new stabilizer row i of t.stepH a has:
-  --   x' j = if j=a then z[stabRow i][j] else x[stabRow i][j]
-  --   z' j = if j=a then x[stabRow i][j] else z[stabRow i][j]
-  --   phase' = phaseH x[stabRow i][a] z[stabRow i][a] phase[stabRow i]
-  simp only [StabTableau.stepH, pauliOp, stabRow]
-  -- We need: pauliOp r' x' z' *ᵥ (H_a *ᵥ ψ) = H_a *ᵥ ψ
-  -- Equivalently: H_a · pauliOp r x z · H_a · (H_a *ᵥ ψ) = H_a *ᵥ ψ
-  -- (using H_a · H_a = I)
-  -- This reduces to: H_a · (pauliOp r x z *ᵥ ψ) = H_a *ᵥ ψ
-  -- which follows from h i.
-  --
-  -- More precisely: pauliOp r' x' z' = H_a · pauliOp r x z · H_a  (by H_conj_rowPauli)
-  -- so pauliOp r' x' z' *ᵥ (H_a ψ) = (H_a · pauliOp r x z · H_a) *ᵥ (H_a ψ)
-  --   = H_a *ᵥ (pauliOp r x z *ᵥ ψ)  [since H_a H_a = I]
-  --   = H_a *ᵥ ψ.
-  sorry
+  set row := stabRow i
+  set H_a := embedGate1 n a H_mat
+  have hi : pauliOp (t.phase row) (t.x row) (t.z row) *ᵥ ψ = ψ := h i
+  have hH2 : H_a * H_a = 1 := embedGate1_self_inverse n a H_mat H_mat_unitary
+  have hx' : (t.stepH a).x row = xAfterH a (t.x row) (t.z row) := by
+    funext q; simp only [StabTableau.stepH, xAfterH]
+    by_cases hq : q = a <;> simp [hq]
+  have hz' : (t.stepH a).z row = zAfterH a (t.x row) (t.z row) := by
+    funext q; simp only [StabTableau.stepH, zAfterH]
+    by_cases hq : q = a <;> simp [hq]
+  have hr' : (t.stepH a).phase row = (t.phase row ^^ (t.x row a && t.z row a)) := rfl
+  have conj : pauliOp ((t.stepH a).phase row) ((t.stepH a).x row) ((t.stepH a).z row) =
+              H_a * pauliOp (t.phase row) (t.x row) (t.z row) * H_a := by
+    rw [hx', hz', hr']
+    simp only [pauliOp]
+    rw [Algebra.mul_smul_comm, Algebra.smul_mul_assoc, H_conj_rowPauli, smul_smul]
+    congr 1
+    rcases Bool.eq_false_or_eq_true (t.phase row) with hr | hr <;>
+    rcases Bool.eq_false_or_eq_true (t.x row a && t.z row a) with hb | hb <;>
+    simp [hr, hb]
+  rw [conj]
+  exact stabStep_mulVec H_a H_a hH2 (pauliOp (t.phase row) (t.x row) (t.z row)) ψ hi
 
 /-- Stabilizer preservation after S gate. -/
 theorem Represents.stepS {n : ℕ} (a : Fin n) (t : StabTableau n) (ψ : Fin (2^n) → ℂ)
     (h : Represents t ψ) :
     Represents (t.stepS a) (embedGate1 n a S_mat *ᵥ ψ) := by
-  sorry
+  intro i
+  set row := stabRow i
+  set S_a  := embedGate1 n a S_mat
+  set S_ad := embedGate1 n a S_mat.conjTranspose
+  have hi : pauliOp (t.phase row) (t.x row) (t.z row) *ᵥ ψ = ψ := h i
+  have hSS : S_ad * S_a = 1 := by
+    simp only [S_ad, S_a, embedGate1_mul, S_mat_adj_self, embedGate1_one]
+  have hx' : (t.stepS a).x row = xAfterS a (t.x row) := rfl
+  have hz' : (t.stepS a).z row = zAfterS a (t.x row) (t.z row) := by
+    funext q; simp only [StabTableau.stepS, zAfterS]
+    by_cases hq : q = a <;> simp [hq]
+  have hr' : (t.stepS a).phase row = (t.phase row ^^ (t.x row a && t.z row a)) := rfl
+  have conj : pauliOp ((t.stepS a).phase row) ((t.stepS a).x row) ((t.stepS a).z row) =
+              S_a * pauliOp (t.phase row) (t.x row) (t.z row) * S_ad := by
+    rw [hx', hz', hr']
+    simp only [pauliOp]
+    rw [Algebra.mul_smul_comm, Algebra.smul_mul_assoc, S_conj_rowPauli, smul_smul]
+    congr 1
+    rcases Bool.eq_false_or_eq_true (t.phase row) with hr | hr <;>
+    rcases Bool.eq_false_or_eq_true (t.x row a && t.z row a) with hb | hb <;>
+    simp [hr, hb]
+  rw [conj]
+  exact stabStep_mulVec S_a S_ad hSS (pauliOp (t.phase row) (t.x row) (t.z row)) ψ hi
 
 /-- Stabilizer preservation after X gate. -/
 theorem Represents.stepX {n : ℕ} (a : Fin n) (t : StabTableau n) (ψ : Fin (2^n) → ℂ)
     (h : Represents t ψ) :
     Represents (t.stepX a) (embedGate1 n a X_mat *ᵥ ψ) := by
-  sorry
+  intro i
+  set row := stabRow i
+  set X_a := embedGate1 n a X_mat
+  have hi : pauliOp (t.phase row) (t.x row) (t.z row) *ᵥ ψ = ψ := h i
+  have hX2 : X_a * X_a = 1 := embedGate1_self_inverse n a X_mat X_mat_unitary
+  have hr' : (t.stepX a).phase row = (t.phase row ^^ t.z row a) := rfl
+  have conj : pauliOp ((t.stepX a).phase row) ((t.stepX a).x row) ((t.stepX a).z row) =
+              X_a * pauliOp (t.phase row) (t.x row) (t.z row) * X_a := by
+    rw [show (t.stepX a).x row = t.x row from rfl,
+        show (t.stepX a).z row = t.z row from rfl, hr']
+    simp only [pauliOp]
+    rw [Algebra.mul_smul_comm, Algebra.smul_mul_assoc, X_conj_rowPauli, smul_smul]
+    congr 1
+    rcases Bool.eq_false_or_eq_true (t.phase row) with hr | hr <;>
+    rcases Bool.eq_false_or_eq_true (t.z row a) with hz | hz <;>
+    simp [hr, hz]
+  rw [conj]
+  exact stabStep_mulVec X_a X_a hX2 (pauliOp (t.phase row) (t.x row) (t.z row)) ψ hi
 
 /-- Stabilizer preservation after Z gate. -/
 theorem Represents.stepZ {n : ℕ} (a : Fin n) (t : StabTableau n) (ψ : Fin (2^n) → ℂ)
     (h : Represents t ψ) :
     Represents (t.stepZ a) (embedGate1 n a Z_mat *ᵥ ψ) := by
-  sorry
+  intro i
+  set row := stabRow i
+  set Z_a := embedGate1 n a Z_mat
+  have hi : pauliOp (t.phase row) (t.x row) (t.z row) *ᵥ ψ = ψ := h i
+  have hZ2 : Z_a * Z_a = 1 := embedGate1_self_inverse n a Z_mat Z_mat_unitary
+  have hr' : (t.stepZ a).phase row = (t.phase row ^^ t.x row a) := rfl
+  have conj : pauliOp ((t.stepZ a).phase row) ((t.stepZ a).x row) ((t.stepZ a).z row) =
+              Z_a * pauliOp (t.phase row) (t.x row) (t.z row) * Z_a := by
+    rw [show (t.stepZ a).x row = t.x row from rfl,
+        show (t.stepZ a).z row = t.z row from rfl, hr']
+    simp only [pauliOp]
+    rw [Algebra.mul_smul_comm, Algebra.smul_mul_assoc, Z_conj_rowPauli, smul_smul]
+    congr 1
+    rcases Bool.eq_false_or_eq_true (t.phase row) with hr | hr <;>
+    rcases Bool.eq_false_or_eq_true (t.x row a) with hxa | hxa <;>
+    simp [hr, hxa]
+  rw [conj]
+  exact stabStep_mulVec Z_a Z_a hZ2 (pauliOp (t.phase row) (t.x row) (t.z row)) ψ hi
 
-/-- Stabilizer preservation after CNOT gate. -/
-theorem Represents.stepCNOT {n : ℕ} (a b : Fin n) (t : StabTableau n) (ψ : Fin (2^n) → ℂ)
+/-- Stabilizer preservation after CNOT gate (requires a ≠ b). -/
+theorem Represents.stepCNOT {n : ℕ} (a b : Fin n) (hab : a ≠ b)
+    (t : StabTableau n) (ψ : Fin (2^n) → ℂ)
     (h : Represents t ψ) :
     Represents (t.stepCNOT a b) (embedCNOT n a b *ᵥ ψ) := by
-  sorry
+  intro i
+  set row := stabRow i
+  set C_a := embedCNOT n a b
+  have hi : pauliOp (t.phase row) (t.x row) (t.z row) *ᵥ ψ = ψ := h i
+  have hC2 : C_a * C_a = 1 := embedCNOT_self_mul n a b hab
+  have hx' : (t.stepCNOT a b).x row =
+             fun j => if j = b then t.x row j ^^ t.x row a else t.x row j := rfl
+  have hz' : (t.stepCNOT a b).z row =
+             fun j => if j = a then t.z row j ^^ t.z row b else t.z row j := rfl
+  have hr' : (t.stepCNOT a b).phase row =
+             (t.phase row ^^ (t.x row a && t.z row b && (t.x row b ^^ t.z row a ^^ true))) := rfl
+  have conj : pauliOp ((t.stepCNOT a b).phase row)
+                      ((t.stepCNOT a b).x row) ((t.stepCNOT a b).z row) =
+              C_a * pauliOp (t.phase row) (t.x row) (t.z row) * C_a := by
+    rw [hx', hz', hr']
+    simp only [pauliOp]
+    rw [Algebra.mul_smul_comm, Algebra.smul_mul_assoc, CNOT_conj_rowPauli a b hab, smul_smul]
+    congr 1
+    rcases Bool.eq_false_or_eq_true (t.phase row) with hr | hr <;>
+    rcases Bool.eq_false_or_eq_true (t.x row a) with hxa | hxa <;>
+    rcases Bool.eq_false_or_eq_true (t.z row b) with hzb | hzb <;>
+    rcases Bool.eq_false_or_eq_true (t.x row b) with hxb | hxb <;>
+    rcases Bool.eq_false_or_eq_true (t.z row a) with hza | hza <;>
+    simp [hr, hxa, hzb, hxb, hza]
+  rw [conj]
+  exact stabStep_mulVec C_a C_a hC2 (pauliOp (t.phase row) (t.x row) (t.z row)) ψ hi
 
 /-- Stabilizer preservation after any single Clifford gate. -/
 theorem Represents.step {n : ℕ} (g : CliffordGate n) (t : StabTableau n) (ψ : Fin (2^n) → ℂ)
     (h : Represents t ψ) :
     Represents (t.step g) (g.toGate.matrix *ᵥ ψ) := by
   match g with
-  | .H q      => exact h.stepH q
-  | .S q      => exact h.stepS q
-  | .X q      => exact h.stepX q
-  | .Z q      => exact h.stepZ q
-  | .CNOT a b => exact h.stepCNOT a b
+  | .H q          => exact h.stepH q
+  | .S q          => exact h.stepS q
+  | .X q          => exact h.stepX q
+  | .Z q          => exact h.stepZ q
+  | .CNOT a b hab => exact h.stepCNOT a b hab
 
 -- ── Main soundness theorem ────────────────────────────────────────────────────
 

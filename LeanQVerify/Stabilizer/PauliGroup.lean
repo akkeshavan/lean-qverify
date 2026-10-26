@@ -398,6 +398,52 @@ theorem S_conj_rowPauli {n : ℕ} (a : Fin n) (x z : Fin n → Bool) :
   rw [conj_eq, Matrix.smul_apply]
   ring
 
+-- ── X and Z conjugation of rowPauli ─────────────────────────────────────────
+
+/-- X-gate conjugation of a rowPauli:
+    (X_a) · rowPauli x z · (X_a) = phase · rowPauli x z
+    where phase = -1 if z[a]=1, else +1. -/
+theorem X_conj_rowPauli {n : ℕ} (a : Fin n) (x z : Fin n → Bool) :
+    embedGate1 n a X_mat * rowPauli x z * embedGate1 n a X_mat
+    = (if z a then (-1 : ℂ) else 1) • rowPauli x z := by
+  ext j k
+  simp only [Matrix.smul_apply, smul_eq_mul]
+  rw [embedGate1_conj_entry a X_mat X_mat x z j k,
+      rowPauli_split_at a x z j k]
+  have conj_eq : X_mat * pauliMat (x a) (z a) * X_mat =
+      (if z a then (-1 : ℂ) else 1) • pauliMat (x a) (z a) := by
+    rcases Bool.eq_false_or_eq_true (x a) with hx | hx <;>
+    rcases Bool.eq_false_or_eq_true (z a) with hz | hz <;>
+    simp only [hx, hz, pauliMat_II, pauliMat_XI, pauliMat_IZ, pauliMat_XZ_eq_Y, if_true, if_false] <;>
+    ext i j <;> fin_cases i <;> fin_cases j <;>
+    simp [X_mat, Z_mat, Y_mat, Matrix.mul_apply, Fin.sum_univ_two,
+          Matrix.cons_val_zero, Matrix.cons_val_one, Matrix.head_cons,
+          Matrix.smul_apply] <;> ring
+  rw [conj_eq, Matrix.smul_apply]
+  ring
+
+/-- Z-gate conjugation of a rowPauli:
+    (Z_a) · rowPauli x z · (Z_a) = phase · rowPauli x z
+    where phase = -1 if x[a]=1, else +1. -/
+theorem Z_conj_rowPauli {n : ℕ} (a : Fin n) (x z : Fin n → Bool) :
+    embedGate1 n a Z_mat * rowPauli x z * embedGate1 n a Z_mat
+    = (if x a then (-1 : ℂ) else 1) • rowPauli x z := by
+  ext j k
+  simp only [Matrix.smul_apply, smul_eq_mul]
+  rw [embedGate1_conj_entry a Z_mat Z_mat x z j k,
+      rowPauli_split_at a x z j k]
+  have conj_eq : Z_mat * pauliMat (x a) (z a) * Z_mat =
+      (if x a then (-1 : ℂ) else 1) • pauliMat (x a) (z a) := by
+    rcases Bool.eq_false_or_eq_true (x a) with hx | hx <;>
+    rcases Bool.eq_false_or_eq_true (z a) with hz | hz <;>
+    simp only [hx, hz, pauliMat_II, pauliMat_XI, pauliMat_IZ, pauliMat_XZ_eq_Y, if_true, if_false] <;>
+    ext i j <;> fin_cases i <;> fin_cases j <;>
+    simp [X_mat, Z_mat, Y_mat, Matrix.mul_apply, Fin.sum_univ_two,
+          Matrix.cons_val_zero, Matrix.cons_val_one, Matrix.head_cons,
+          Matrix.smul_apply] <;> ring
+  rw [conj_eq, Matrix.smul_apply]
+  ring
+
 -- ── CNOT conjugation helpers ─────────────────────────────────────────────────
 
 private lemma cnotFn_lt_t {n : ℕ} (a b : Fin n) (j : Fin (2^n)) :

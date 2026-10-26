@@ -22,7 +22,7 @@ inductive CliffordGate (n : ℕ) where
   | S    : Fin n → CliffordGate n
   | X    : Fin n → CliffordGate n
   | Z    : Fin n → CliffordGate n
-  | CNOT : Fin n → Fin n → CliffordGate n
+  | CNOT : (a b : Fin n) → a ≠ b → CliffordGate n
   deriving DecidableEq
 
 /-- Embed a Clifford gate into the general Gate type for matrix access. -/
@@ -31,7 +31,7 @@ def CliffordGate.toGate {n : ℕ} : CliffordGate n → Gate n
   | .S q      => .S q
   | .X q      => .X q
   | .Z q      => .Z q
-  | .CNOT a b => .CNOT a b
+  | .CNOT a b _ => .CNOT a b
 
 /-- A Clifford circuit: ordered list of Clifford gates (first gate = applied first). -/
 abbrev CliffordCircuit (n : ℕ) := List (CliffordGate n)
@@ -54,7 +54,7 @@ def ofQCircuit? {n : ℕ} : QCircuit n → Option (CliffordCircuit n)
         | .S q      => some (.S q :: rest)
         | .X q      => some (.X q :: rest)
         | .Z q      => some (.Z q :: rest)
-        | .CNOT a b => some (.CNOT a b :: rest)
+        | .CNOT a b => if hab : a ≠ b then some (.CNOT a b hab :: rest) else none
         | _         => none
 
 /-- `ofQCircuit?` is sound: if it succeeds, the embedded circuit equals the input. -/

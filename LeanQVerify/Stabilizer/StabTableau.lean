@@ -106,7 +106,7 @@ def StabTableau.step {n : ℕ} (g : CliffordGate n) (t : StabTableau n) : StabTa
   | .S q      => t.stepS q
   | .X q      => t.stepX q
   | .Z q      => t.stepZ q
-  | .CNOT a b => t.stepCNOT a b
+  | .CNOT a b _ => t.stepCNOT a b
 
 /-- Simulate a full Clifford circuit on the tableau (gates applied left-to-right). -/
 def stabSim {n : ℕ} (c : CliffordCircuit n) (t : StabTableau n) : StabTableau n :=
