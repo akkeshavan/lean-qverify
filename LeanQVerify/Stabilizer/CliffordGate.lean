@@ -60,7 +60,42 @@ def ofQCircuit? {n : ℕ} : QCircuit n → Option (CliffordCircuit n)
 /-- `ofQCircuit?` is sound: if it succeeds, the embedded circuit equals the input. -/
 theorem ofQCircuit?_sound {n : ℕ} (c : QCircuit n) (cc : CliffordCircuit n)
     (h : ofQCircuit? c = some cc) : cc.toQCircuit = c := by
-  sorry
+  induction c generalizing cc with
+  | empty =>
+    simp only [ofQCircuit?] at h
+    obtain rfl := Option.some.inj h; rfl
+  | cons g c' ih =>
+    simp only [ofQCircuit?] at h
+    cases hc' : ofQCircuit? c' with
+    | none => simp [hc'] at h
+    | some rest =>
+      rw [hc', Option.bind_some] at h
+      have ih_rest : rest.toQCircuit = c' := ih rest hc'
+      cases g with
+      | H q =>
+          simp only at h
+          obtain rfl := (Option.some.inj h).symm
+          simp [CliffordCircuit.toQCircuit, CliffordGate.toGate, ih_rest]
+      | S q =>
+          simp only at h
+          obtain rfl := (Option.some.inj h).symm
+          simp [CliffordCircuit.toQCircuit, CliffordGate.toGate, ih_rest]
+      | X q =>
+          simp only at h
+          obtain rfl := (Option.some.inj h).symm
+          simp [CliffordCircuit.toQCircuit, CliffordGate.toGate, ih_rest]
+      | Z q =>
+          simp only at h
+          obtain rfl := (Option.some.inj h).symm
+          simp [CliffordCircuit.toQCircuit, CliffordGate.toGate, ih_rest]
+      | CNOT a b =>
+          simp only at h
+          split_ifs at h with hab
+          obtain rfl := (Option.some.inj h).symm
+          simp [CliffordCircuit.toQCircuit, CliffordGate.toGate, ih_rest]
+      | Y _ | T _ | RX _ _ | RY _ _ | RZ _ _ | CZ _ _ | SWAP _ _
+      | CCX _ _ _ | U3 _ _ _ _ | CH _ _ | CY _ _ | CP _ _ _ | CRZ _ _ _
+      | RZZ _ _ _ | RXX _ _ _ | RYY _ _ _ => simp at h
 
 end CliffordCircuit
 end LeanQVerify
