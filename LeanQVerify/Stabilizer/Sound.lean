@@ -57,11 +57,51 @@ def Represents {n : ℕ} (t : StabTableau n) (ψ : Fin (2^n) → ℂ) : Prop :=
 /-- |0^n⟩ amplitude function: 1 at index 0, 0 elsewhere. -/
 def ket0Vec (n : ℕ) : Fin (2^n) → ℂ := fun k => if k.val = 0 then 1 else 0
 
+-- pauliMat false b r ⟨0,_⟩ = if r.val = 0 then 1 else 0
+private lemma pauliMat_false_col0 (b : Bool) (r : Fin 2) :
+    pauliMat false b r ⟨0, by norm_num⟩ = if r.val = 0 then (1 : ℂ) else 0 := by
+  fin_cases b <;> fin_cases r <;>
+  simp [pauliMat, Z_mat, Matrix.one_apply, Matrix.cons_val_zero, Matrix.cons_val_one,
+        Matrix.head_cons, Fin.ext_iff]
+
+-- natBit 0 j = ⟨0, _⟩
+private lemma natBit_zero_val (j : ℕ) : natBit 0 j = (⟨0, by norm_num⟩ : Fin 2) := by
+  ext; simp [natBit, Nat.zero_testBit]
+
+-- ∏ j, (if (natBit k j).val = 0 then 1 else 0) = if k = 0 then 1 else 0
+private lemma prod_ite_natBit_eq {n : ℕ} (k : Fin (2^n)) :
+    ∏ j : Fin n, (if (natBit k.val j.val).val = 0 then (1:ℂ) else 0) = if k.val = 0 then 1 else 0 := by
+  rcases Nat.eq_zero_or_pos k.val with hk | hk
+  · have hk' : (k : ℕ) = 0 := hk
+    simp only [hk', if_pos rfl]
+    apply Finset.prod_eq_one; intro j _; simp [natBit, Nat.zero_testBit, hk]
+  · have hne : k.val ≠ 0 := Nat.pos_iff_ne_zero.mp hk
+    simp only [show (k : ℕ) ≠ 0 from hne, ↓reduceIte]
+    have hlog_lt : k.val.log2 < n := (Nat.log2_lt hne).mpr k.isLt
+    apply Finset.prod_eq_zero (Finset.mem_univ (⟨k.val.log2, hlog_lt⟩ : Fin n))
+    simp [natBit, Nat.testBit_log2 hne]
+
+-- Z-only rowPauli fixes ket0Vec: rowPauli (fun _ => false) z *ᵥ ket0Vec n = ket0Vec n
+private lemma rowPauli_zOnly_ket0Vec {n : ℕ} (z : Fin n → Bool) :
+    rowPauli (fun _ => false) z *ᵥ ket0Vec n = ket0Vec n := by
+  funext k
+  show ∑ l : Fin (2^n),
+      (∏ j : Fin n, pauliMat false (z j) (natBit k.val j.val) (natBit l.val j.val)) *
+      (if l.val = 0 then (1 : ℂ) else 0) = if k.val = 0 then 1 else 0
+  have hpow : 0 < 2^n := Nat.two_pow_pos n
+  rw [Finset.sum_eq_single (⟨0, hpow⟩ : Fin (2^n))
+      (fun l _ hn => by simp only [if_neg (fun h => hn (Fin.ext h)), mul_zero])
+      (fun h => absurd (Finset.mem_univ _) h)]
+  simp only [mul_one, if_true]
+  simp_rw [natBit_zero_val, pauliMat_false_col0]
+  exact prod_ite_natBit_eq k
+
 /-- The initial tableau represents |0^n⟩. -/
 theorem ket0n_represents (n : ℕ) : Represents (ket0n n) (ket0Vec n) := by
   intro i
   simp only [pauliOp, ket0n, stabRow]
-  sorry
+  norm_num
+  exact rowPauli_zOnly_ket0Vec _
 
 -- ── Gate-by-gate Represents update ───────────────────────────────────────────
 
