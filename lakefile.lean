@@ -2,7 +2,7 @@ import Lake
 open Lake DSL
 
 package «lean-qverify» where
-  version     := v!"0.1.0.0"
+  version     := v!"0.1.0"
   description := "Formal verification of quantum circuits in Lean 4 + Mathlib: " ++
                  "type-safe gate/circuit model, ZX-calculus semantics, " ++
                  "OpenQASM 3 parser, and a circuit specification language."

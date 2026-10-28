@@ -78,6 +78,10 @@ def ket10 : QState 2 :=
 def ket11 : QState 2 :=
   ⟨![0, 0, 0, 1], by simp [Fin.sum_univ_four, normSq_one]⟩
 
+/-- |000⟩ — all-zeros 3-qubit computational basis state. -/
+def ket000 : QState 3 :=
+  ⟨![1, 0, 0, 0, 0, 0, 0, 0], by simp [Fin.sum_univ_eight, normSq_one]⟩
+
 /-- The Bell state |Φ+⟩ = (|00⟩ + |11⟩) / √2. -/
 noncomputable def bellPhi : QState 2 :=
   ⟨![((Real.sqrt 2 : ℂ))⁻¹, 0, 0, ((Real.sqrt 2 : ℂ))⁻¹], by

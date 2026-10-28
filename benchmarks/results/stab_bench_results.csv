@@ -1,0 +1,9 @@
+n_qubits,time_s,passed
+1,18.58,True
+2,7.96,True
+5,5.08,True
+10,4.98,True
+20,4.97,True
+50,5.01,True
+100,4.93,True
+200,13.10,True

@@ -1,0 +1,128 @@
+import LeanQVerify.Circuit.Gate
+import LeanQVerify.Circuit.QCircuit
+
+/-!
+# Clifford Gate Subset and Circuit Classifier
+
+Defines the Clifford-only gate type, the circuit-level type, and a
+decision procedure that tries to extract a `CliffordCircuit` from a
+general `QCircuit`.  The Clifford set {H, S, X, Z, CNOT} is closed
+under composition and conjugation, and suffices to generate all
+Clifford unitaries.
+
+T, RZ, and rotation gates are **not** Clifford and cause `ofQCircuit?`
+to return `none`.
+-/
+
+namespace LeanQVerify
+
+/-- Clifford-only gate subset for n-qubit systems. -/
+inductive CliffordGate (n : ℕ) where
+  | H    : Fin n → CliffordGate n
+  | S    : Fin n → CliffordGate n
+  | X    : Fin n → CliffordGate n
+  | Z    : Fin n → CliffordGate n
+  | CNOT : (a b : Fin n) → a ≠ b → CliffordGate n
+  deriving DecidableEq
+
+/-- Embed a Clifford gate into the general Gate type for matrix access. -/
+def CliffordGate.toGate {n : ℕ} : CliffordGate n → Gate n
+  | .H q      => .H q
+  | .S q      => .S q
+  | .X q      => .X q
+  | .Z q      => .Z q
+  | .CNOT a b _ => .CNOT a b
+
+/-- A Clifford circuit: ordered list of Clifford gates (first gate = applied first). -/
+abbrev CliffordCircuit (n : ℕ) := List (CliffordGate n)
+
+namespace CliffordCircuit
+
+/-- Embed a Clifford circuit into the general QCircuit type. -/
+def toQCircuit {n : ℕ} : CliffordCircuit n → QCircuit n
+  | []      => .empty
+  | g :: gs => .cons g.toGate (toQCircuit gs)
+
+/-- Try to classify a general QCircuit as Clifford.
+    Returns `none` if any gate is non-Clifford (T, RZ, CZ, SWAP, …). -/
+def ofQCircuit? {n : ℕ} : QCircuit n → Option (CliffordCircuit n)
+  | .empty    => some []
+  | .cons g c =>
+      ofQCircuit? c |>.bind fun rest =>
+        match g with
+        | .H q      => some (.H q :: rest)
+        | .S q      => some (.S q :: rest)
+        | .X q      => some (.X q :: rest)
+        | .Z q      => some (.Z q :: rest)
+        | .CNOT a b => if hab : a ≠ b then some (.CNOT a b hab :: rest) else none
+        | _         => none
+
+/-- `ofQCircuit?` is sound: if it succeeds, the embedded circuit equals the input. -/
+theorem ofQCircuit?_sound {n : ℕ} (c : QCircuit n) (cc : CliffordCircuit n)
+    (h : ofQCircuit? c = some cc) : cc.toQCircuit = c := by
+  induction c generalizing cc with
+  | empty =>
+    simp only [ofQCircuit?] at h
+    obtain rfl := Option.some.inj h; rfl
+  | cons g c' ih =>
+    simp only [ofQCircuit?] at h
+    cases hc' : ofQCircuit? c' with
+    | none => simp [hc'] at h
+    | some rest =>
+      rw [hc', Option.bind_some] at h
+      have ih_rest : rest.toQCircuit = c' := ih rest hc'
+      cases g with
+      | H q =>
+          simp only at h
+          obtain rfl := (Option.some.inj h).symm
+          simp [CliffordCircuit.toQCircuit, CliffordGate.toGate, ih_rest]
+      | S q =>
+          simp only at h
+          obtain rfl := (Option.some.inj h).symm
+          simp [CliffordCircuit.toQCircuit, CliffordGate.toGate, ih_rest]
+      | X q =>
+          simp only at h
+          obtain rfl := (Option.some.inj h).symm
+          simp [CliffordCircuit.toQCircuit, CliffordGate.toGate, ih_rest]
+      | Z q =>
+          simp only at h
+          obtain rfl := (Option.some.inj h).symm
+          simp [CliffordCircuit.toQCircuit, CliffordGate.toGate, ih_rest]
+      | CNOT a b =>
+          simp only at h
+          split_ifs at h with hab
+          obtain rfl := (Option.some.inj h).symm
+          simp [CliffordCircuit.toQCircuit, CliffordGate.toGate, ih_rest]
+      | Y _ | T _ | RX _ _ | RY _ _ | RZ _ _ | CZ _ _ | SWAP _ _
+      | CCX _ _ _ | U3 _ _ _ _ | CH _ _ | CY _ _ | CP _ _ _ | CRZ _ _ _
+      | RZZ _ _ _ | RXX _ _ _ | RYY _ _ _ => simp at h
+
+end CliffordCircuit
+
+-- ---------------------------------------------------------------------------
+-- castSucc and parametric GHZ circuit
+-- ---------------------------------------------------------------------------
+
+/-- Lift a Clifford gate from n to n+1 qubits via Fin.castSucc. -/
+def CliffordGate.castSucc {n : ℕ} : CliffordGate n → CliffordGate (n + 1)
+  | .H q        => .H q.castSucc
+  | .S q        => .S q.castSucc
+  | .X q        => .X q.castSucc
+  | .Z q        => .Z q.castSucc
+  | .CNOT a b h => .CNOT a.castSucc b.castSucc (fun heq => h (Fin.castSucc_inj.mp heq))
+
+/-- CNOT entangling tail for GHZ within an (n+2)-qubit Clifford circuit. -/
+private def ghzCliffordCNOTs : (n : ℕ) → CliffordCircuit (n + 2)
+  | 0     => [.CNOT ⟨0, by omega⟩ ⟨1, by omega⟩
+               (by intro h; simp only [Fin.mk.injEq] at h; omega)]
+  | n + 1 => .CNOT ⟨0, by omega⟩ ⟨n + 2, by omega⟩
+               (by intro h; simp only [Fin.mk.injEq] at h; omega) ::
+             (ghzCliffordCNOTs n).map CliffordGate.castSucc
+
+/-- GHZ preparation as a Clifford circuit for n+1 qubits:
+    H on qubit 0, then CNOT(0, k) for k = 1..n. -/
+def ghzCliffordCircuit : (n : ℕ) → CliffordCircuit (n + 1)
+  | 0     => [.H ⟨0, by omega⟩]
+  | n + 1 => .H ⟨0, by omega⟩ :: ghzCliffordCNOTs n
+
+end LeanQVerify

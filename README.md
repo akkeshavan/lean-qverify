@@ -91,11 +91,12 @@ instructions, expected output, and a sorry audit.
 
 All of the following are kernel-checked — no `sorry` anywhere in the proof tree:
 
+**Structural and equivalence theorems** (automated via `simp`):
+
 | Circuit | Property | Proof tactic |
 |---|---|---|
 | Bell prep | gate count = 2, CNOT count = 1 | `simp` |
 | Bell prep | depth ≤ 2 | `simp` |
-| Bell prep | P(q₀=0) = ½, P(q₀=1) = ½ | explicit matrix + `norm_num` |
 | GHZ prep | gate count = 3, depth ≤ 3 | `simp` |
 | Teleportation | pre-measurement depth ≤ 4 | `simp` |
 | HEA (4-qubit) | 7 gates, 3 CNOTs, 4 RZ, depth ≤ 4 | `simp` |
@@ -106,7 +107,18 @@ All of the following are kernel-checked — no `sorry` anywhere in the proof tre
 | RZ(0) | ≡ I | `Rz_zero_id` |
 | RZ(θ)∘RZ(φ) | ≡ RZ(θ+φ) | `Rz_mat_add` |
 | SWAP | ≡ CNOT(i,j)∘CNOT(j,i)∘CNOT(i,j) | `Nat.testBit_xor` + sum collapse |
-| Grover (2-qubit, 1 step) | P(q₀=1) ≥ 0.99 | explicit 4×4 unitary + `norm_num` |
+
+**Semantic theorems** (automated via `verify_prob`):
+
+| Circuit | Property | Backend |
+|---|---|---|
+| Bell prep | P(q₀=0) = ½, P(q₀=1) = ½ | dense evaluator |
+| Bell prep | joint P(|00⟩) ≥ ½, joint P(|11⟩) ≥ ½ | dense evaluator |
+| GHZ (3-qubit) | joint P(|000⟩) ≥ ½, joint P(|111⟩) ≥ ½ | dense evaluator |
+| Grover (2-qubit, 1 step) | P(q₀=1) ≥ 0.99 | dense evaluator |
+| RZ(π) on \|0⟩ | P(q₀=0) = 1 | dense evaluator + `Rz_mat_pi` |
+| Bell prep (Clifford form) | P(q₀=0) = ½ | stabilizer tableau (O(n²)) |
+| GHZ (100-qubit) | P(q₀=0) = ½ | stabilizer tableau (O(n²)) |
 
 All 40 theorems are kernel-checked with no `sorry` in the proof tree.
 The core 38 are independently verifiable via the `theorems/` folder; 2 additional theorems are in the book examples (Chapters 11–12).
@@ -125,11 +137,20 @@ lean-qverify/
 │   ├── Circuit/
 │   │   ├── Gate.lean           -- Gate n inductive type and matrices
 │   │   ├── QCircuit.lean       -- circuit datatype, denotational semantics
-│   │   └── Identities.lean     -- proved gate identity theorems
+│   │   ├── Identities.lean     -- proved gate identity theorems
+│   │   └── Parametric.lean     -- parametric circuit families (ghzCircuit n)
 │   ├── Spec/
 │   │   ├── CircuitSpec.lean    -- specification language and ⊨ relation
 │   │   ├── Satisfies.lean      -- satisfaction lemmas (monotonicity etc.)
 │   │   └── StandardSpecs.lean  -- Bell, GHZ, teleportation, HEA, Grover
+│   ├── Stabilizer/
+│   │   ├── CliffordGate.lean   -- CliffordGate, CliffordCircuit, Clifford classifier
+│   │   ├── PauliGroup.lean     -- Pauli group; Clifford conjugation lemmas
+│   │   ├── StabTableau.lean    -- Aaronson–Gottesman 2n-row tableau; stepH/S/CNOT
+│   │   └── Sound.lean          -- Represents, stabSim_correct, zProb_correct, soundness
+│   ├── Tactic/
+│   │   ├── EvalCircuit.lean    -- gate-by-gate symbolic evaluator (avoids 2^n matrix)
+│   │   └── VerifyProb.lean     -- verify_prob tactic; verify_clifford Clifford dispatch
 │   └── QASM/
 │       ├── Parser.lean         -- OpenQASM 3 recursive-descent parser
 │       └── Elaborator.lean     -- AST → ElabResult / QCircuit n
@@ -322,6 +343,6 @@ Install with `pip install -e ".[gpu]"` on a CUDA 12 machine. The package falls b
 
 ## Status
 
-**v0.1.0.0.** All core types, parser, elaborator, specification language, and 40 kernel-checked theorems are implemented. One infrastructure stub remains in `DensityMatrix.lean` (post-measurement state collapse) — it is unused by any proved theorem. See the sorry audit in `theorems/README.md`.
+**v0.1.0.0.** All core types, parser, elaborator, specification language, and 40 kernel-checked theorems are implemented. The `verify_prob` tactic automates measurement-probability proofs: it dispatches Clifford circuits to a verified Aaronson–Gottesman stabilizer tableau backend (O(n²) per gate, handles 100+ qubits) and falls back to a dense gate-by-gate evaluator for small circuits. One infrastructure stub remains in `DensityMatrix.lean` (post-measurement state collapse) — it is unused by any proved theorem. See the sorry audit in `theorems/README.md`.
 
-See `SPEC.md` for the full design specification and `FUTURE_WORK.md` for the roadmap.
+See `SPEC.md` for the full design specification and `SEMANTIC_ROADMAP.md` for the automation roadmap.

@@ -148,12 +148,27 @@ theorem Rz_zero_id : Rz_mat 0 = 1 := by
     Matrix.cons_val_zero, Matrix.cons_val_one, Matrix.head_cons]
   all_goals simp [Complex.exp_zero]
 
+/-- Rz(π) = [[-i, 0], [0, i]], concrete simp lemma for verify_prob. -/
+theorem Rz_mat_pi : Rz_mat Real.pi = !![(-I : ℂ), 0; 0, I] := by
+  ext i j; fin_cases i <;> fin_cases j
+  all_goals simp [Rz_mat, Matrix.cons_val_zero, Matrix.cons_val_one, Matrix.head_cons]
+  · rw [show -(I * (↑Real.pi / 2) : ℂ) = -↑Real.pi / 2 * I from by ring,
+        exp_neg_pi_div_two_mul_I]
+  · rw [show (I : ℂ) * (↑Real.pi / 2) = ↑Real.pi / 2 * I from by ring,
+        exp_pi_div_two_mul_I]
+
+/-- The normSq of a unit complex exponential is 1: normSq(e^{iθ}) = 1. -/
+theorem normSq_exp_I_mul_ofReal (θ : ℝ) :
+    normSq (exp (I * ↑θ)) = 1 := by
+  rw [show I * ↑θ = ↑θ * I from mul_comm _ _,
+      normSq_eq_norm_sq, norm_exp_ofReal_mul_I, one_pow]
+
 -- ---------------------------------------------------------------------------
 -- Embedding single-qubit gates into n-qubit space
 -- ---------------------------------------------------------------------------
 
 /-- Condition shorthand: j and k agree on all bits except i. -/
-private def sameExcept (n : ℕ) (i : Fin n) (j k : Fin (2^n)) : Prop :=
+def sameExcept (n : ℕ) (i : Fin n) (j k : Fin (2^n)) : Prop :=
   ∀ l : Fin n, l ≠ i → j.val.testBit l.val = k.val.testBit l.val
 
 instance instDecidableSameExcept (n : ℕ) (i : Fin n) (j k : Fin (2^n)) :
@@ -471,6 +486,51 @@ theorem X_mat_self_adjoint : X_mat.conjTranspose = X_mat := by
   all_goals simp [Matrix.conjTranspose, X_mat, Matrix.vecHead,
     Matrix.cons_val_zero, Matrix.cons_val_one, Matrix.head_cons,
     Matrix.transpose_apply, star_zero, star_one]
+
+theorem Z_mat_self_adjoint : Z_mat.conjTranspose = Z_mat := by
+  ext i j; fin_cases i <;> fin_cases j
+  all_goals simp [Matrix.conjTranspose, Z_mat, Matrix.vecHead,
+    Matrix.cons_val_zero, Matrix.cons_val_one, Matrix.head_cons,
+    Matrix.transpose_apply, star_zero, star_one]
+
+/-- conjTranspose distributes over embedGate1:
+    (embedGate1 n i G)† = embedGate1 n i G†. -/
+theorem embedGate1_conjTranspose (n : ℕ) (i : Fin n) (G : Matrix (Fin 2) (Fin 2) ℂ) :
+    (embedGate1 n i G).conjTranspose = embedGate1 n i G.conjTranspose := by
+  ext j k
+  simp only [Matrix.conjTranspose_apply, embedGate1]
+  have hse : sameExcept n i k j ↔ sameExcept n i j k :=
+    ⟨fun h l hl => (h l hl).symm, fun h l hl => (h l hl).symm⟩
+  by_cases h : sameExcept n i j k
+  · simp only [if_pos (hse.mpr h), if_pos h]
+  · simp only [if_neg (fun hc => h (hse.mp hc)), if_neg h, star_zero]
+
+/-- The n-qubit CNOT matrix is self-adjoint (requires control ≠ target). -/
+theorem embedCNOT_self_adjoint (n : ℕ) (c t : Fin n) (hct : c ≠ t) :
+    (embedCNOT n c t).conjTranspose = embedCNOT n c t := by
+  have ht_bit : (1 <<< t.val).testBit c.val = false := by
+    simp only [Nat.shiftLeft_eq, one_mul, Nat.testBit_two_pow]
+    simp [show t.val ≠ c.val from Fin.val_ne_of_ne (Ne.symm hct)]
+  have xor_c : ∀ v : ℕ, (v ^^^ 1 <<< t.val).testBit c.val = v.testBit c.val := fun v => by
+    rw [Nat.testBit_xor, ht_bit, Bool.xor_false]
+  have cnot_invol : ∀ v : ℕ, v < 2 ^ n →
+      (if (if v.testBit c.val then v ^^^ 1 <<< t.val else v).testBit c.val
+       then (if v.testBit c.val then v ^^^ 1 <<< t.val else v) ^^^ 1 <<< t.val
+       else (if v.testBit c.val then v ^^^ 1 <<< t.val else v)) = v := by
+    intro v _
+    cases hb : v.testBit c.val
+    · simp [hb]
+    · simp only [hb, ite_true, xor_c, Nat.xor_assoc, Nat.xor_self, Nat.xor_zero]
+  ext j k
+  simp only [Matrix.conjTranspose_apply, embedCNOT, apply_ite star, star_zero, star_one]
+  apply if_congr _ rfl rfl
+  constructor
+  · intro h
+    have hk := cnot_invol k.val k.isLt
+    rw [← h] at hk; exact hk.symm
+  · intro h
+    have hj := cnot_invol j.val j.isLt
+    rw [← h] at hj; exact hj.symm
 
 -- ---------------------------------------------------------------------------
 -- Universal single-qubit gate (U3)

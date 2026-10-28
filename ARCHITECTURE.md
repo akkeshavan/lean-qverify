@@ -14,7 +14,7 @@ or debugging any part of the system.
 4. [Gate matrices and embedding](#4-gate-matrices-and-embedding)
 5. [Denotational semantics](#5-denotational-semantics)
 6. [Specification language](#6-specification-language)
-7. [Proof infrastructure](#7-proof-infrastructure)
+7. [Proof infrastructure](#7-proof-infrastructure) (7.1–7.5 existing; 7.6 verify_prob; 7.7 stabilizer backend)
 8. [QASM pipeline](#8-qasm-pipeline)
 9. [ZX-calculus](#9-zx-calculus)
 10. [Quantum Hoare Logic](#10-quantum-hoare-logic)
@@ -93,6 +93,21 @@ lean-qverify/
 │   │   ├── CircuitSpec.lean     -- CircuitSpec n; satisfies; countGates; depth
 │   │   ├── Satisfies.lean       -- monotonicity lemmas for satisfaction
 │   │   └── StandardSpecs.lean   -- Bell, GHZ, teleportation, HEA, Grover theorems
+│   ├── Stabilizer/
+│   │   ├── CliffordGate.lean    -- CliffordGate inductive; CliffordCircuit; toQCircuit;
+│   │   │                        --   ofQCircuit? Clifford classifier + soundness
+│   │   ├── PauliGroup.lean      -- pauliMat; rowPauli; pauliOp; Clifford conjugation
+│   │   │                        --   lemmas for H, S, CNOT
+│   │   ├── StabTableau.lean     -- Aaronson–Gottesman 2n-row tableau; stepH/S/X/Z/CNOT;
+│   │   │                        --   stabSim; ket0n initial tableau
+│   │   └── Sound.lean           -- Represents predicate; ket0n_represents;
+│   │                            --   stabSim_correct; zProb; zProb_correct;
+│   │                            --   verifyStabilizerProb; verify_stabilizer_prob_sound
+│   ├── Tactic/
+│   │   ├── EvalCircuit.lean     -- evalCircuit gate-by-gate evaluator; evalCircuit_correct
+│   │   └── VerifyProb.lean      -- verify_prob macro (3-pass: simp+decide+norm_num);
+│   │                            --   verify_clifford elab tactic (Clifford dispatch);
+│   │                            --   sqrt2_inv_mul_self helper lemmas; demo theorems
 │   ├── QASM/
 │   │   ├── Parser.lean          -- recursive-descent QASM 3 parser
 │   │   ├── Elaborator.lean      -- AST → ElabResult / QCircuit n; angle recognizer
@@ -513,6 +528,113 @@ goals that involve `Real.sqrt` terms (like `(1/√2)·(1/√2) = 1/2`).
 The SWAP = CNOT∘CNOT∘CNOT proof works by showing that XOR-ing bits twice returns
 the original value. The key lemma is `Nat.testBit_xor`, which lets the proof
 collapse a sum over basis states.
+
+### 7.6 `verify_prob` — automated measurement-probability tactic
+
+`verify_prob` (`Tactic/VerifyProb.lean`) is a macro that dispatches measurement-
+probability goals automatically. Dispatch order:
+
+```
+verify_prob
+    │
+    ├── verify_clifford ──────────► stabilizer backend   (§7.7)
+    │   (if goal is CliffordCircuit.toQCircuit form)
+    │
+    └── dense evaluator fallback
+        Pass 1: circuit unfolding (simp only + evalCircuit)
+        Pass 2: mulVec evaluation (simp decide:=true + Fin.sum_univ_*)
+        Pass 3: normSq arithmetic (norm_num)
+```
+
+**`verify_clifford`** is an `elab` tactic (not a `macro`) so it can inspect the
+goal expression without triggering `whnf` on the circuit. It checks two syntactic
+conditions in zero cost:
+1. `fn.constName! == ``CircuitSpec.satisfies` — goal is a `satisfies` prop
+2. `circuit.getAppFn.constName! == ``CliffordCircuit.toQCircuit` — Clifford form
+
+If either check fails it immediately calls `failure`, leaving the dense evaluator
+to handle the goal. If both pass it runs:
+```lean
+apply verify_stabilizer_prob_sound_real
+norm_num    -- closes p ≤ 1/2 side goal
+native_decide  -- checks verifyStabilizerProb by computation
+```
+
+**Dense evaluator.** Uses `evalCircuit` (a gate-by-gate state transformer) rather
+than building the full `2^n × 2^n` matrix product. This keeps intermediate term
+size O(n_gates × 4) rather than O(4^n_gates). Three passes:
+
+- **Pass 1** — `simp only` with `evalCircuit_cons/empty/append` rewrites
+  `applyTo` to a sequence of concrete `mulVec` calls.
+- **Pass 2** — `simp (decide := true)` with `Fin.sum_univ_two/four/eight`
+  expands each `mulVec` to a concrete scalar sum.
+- **Pass 3** — `norm_num` closes the resulting real arithmetic.
+
+Helper lemmas `sqrt2_inv_mul_self` and `sqrt2_inv_mul_mul` pre-simplify
+`(↑√2)⁻¹ * (↑√2)⁻¹ = 1/2` so Pass 2 does not explode on Hadamard entries.
+
+### 7.7 Verified stabilizer backend
+
+The stabilizer backend (`Stabilizer/`) implements the Aaronson–Gottesman (2004)
+tableau simulator with full soundness proofs connecting it to the denotational
+semantics.
+
+**Key types:**
+
+```lean
+-- Clifford-only gate; circuit is List CliffordGate n
+inductive CliffordGate (n : ℕ) | H | S | X | Z | CNOT (hab : a ≠ b)
+
+-- Aaronson–Gottesman 2n-row tableau
+structure StabTableau (n : ℕ) where
+  x : Fin (2*n) → Fin n → Bool   -- X part of each Pauli row
+  z : Fin (2*n) → Fin n → Bool   -- Z part
+  r : Fin (2*n) → Bool           -- phase bit (0 = +1, 1 = -1)
+```
+
+The first `n` rows are destabilizers; rows `n..2n-1` are stabilizers.
+
+**Core refinement theorem:**
+
+```lean
+theorem stabSim_correct (c : CliffordCircuit n)
+    (t₀ : StabTableau n) (ψ : Fin (2^n) → ℂ)
+    (h : Represents t₀ ψ) :
+    Represents (stabSim c t₀) (c.toQCircuit.applyTo ψ)
+```
+
+This single theorem justifies every tableau-based measurement proof: if the
+initial tableau represents the initial state, then the final tableau represents
+the final state after any Clifford circuit.
+
+**Measurement correctness:**
+
+```lean
+theorem zProb_correct (t : StabTableau n) (ψ : Fin (2^n) → ℂ)
+    (q : Fin n) (b : Bool) (h : Represents t ψ) :
+    (t.zProb q b : ℝ) = measProb_vec ψ q b
+```
+
+`zProb` returns 1/2 (random) when qubit `q` is not determined by the stabilizers
+(anticommutes with some generator), and 0 or 1 (deterministic) via the
+`zProbDet` accumulation algorithm (A-G Table 1) otherwise. The deterministic
+case is proved modulo one remaining sorry (`zProbDet_eigenvalue`: when Z_q
+commutes with all stabilizer generators, ψ is a ±1 eigenstate of Z_q).
+
+**Soundness theorem (used by `verify_clifford`):**
+
+```lean
+theorem verify_stabilizer_prob_sound_real
+    (cc : CliffordCircuit n) (q : Fin n) (b : Bool) (p : ℝ)
+    (hp : p ≤ 1/2)
+    (hne : (Finset.univ.filter fun i : Fin n =>
+              (stabSim cc (ket0n n)).antiCommutesZ (stabRow i) q).Nonempty) :
+    cc.toQCircuit ⊨ .measurementProb ⟨ket0Vec n, ket0Vec_norm n⟩ q b p
+```
+
+This is the unconditional form used by `verify_clifford`. Norm preservation
+(`cliffordCircuit_applyTo_ket0Vec_norm`) is proved internally so no `hnorm`
+hypothesis is needed at call sites.
 
 ---
 
@@ -950,6 +1072,14 @@ Mathlib
         └── LeanQVerify.QASM.Elaborator
               └── LeanQVerify.QASM.ParseTheorems
                     └── LeanQVerify.QASM.Serializer
+  └── LeanQVerify.Stabilizer.CliffordGate
+        └── LeanQVerify.Stabilizer.PauliGroup
+              └── LeanQVerify.Stabilizer.StabTableau
+                    └── LeanQVerify.Stabilizer.Sound
+                          └── LeanQVerify.Tactic.VerifyProb
+  └── LeanQVerify.Tactic.EvalCircuit
+        └── LeanQVerify.Spec.StandardSpecs
+              └── LeanQVerify.Tactic.VerifyProb
 ```
 
 `LeanQVerify.lean` re-exports everything under a single import.
@@ -1028,4 +1158,4 @@ counted in the main library's theorem list. They are extra examples on top of th
 
 ---
 
-*Last updated: v0.1.0.0*
+*Last updated: v0.1.0.0 + stabilizer backend + verify_prob tactic (Oct 2026)*
