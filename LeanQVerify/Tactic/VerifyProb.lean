@@ -1,5 +1,6 @@
 import LeanQVerify.Tactic.EvalCircuit
 import LeanQVerify.Spec.StandardSpecs
+import LeanQVerify.Stabilizer.Sound
 
 /-!
 # `verify_prob` Tactic
@@ -67,12 +68,43 @@ theorem sqrt2_inv_mul_mul (x : ℂ) :
     ((Real.sqrt 2 : ℂ))⁻¹ * (((Real.sqrt 2 : ℂ))⁻¹ * x) = 1 / 2 * x := by
   rw [← mul_assoc, sqrt2_inv_mul_self]
 
+-- `verify_clifford`: fast Clifford dispatch via stabilizer backend.
+-- Zero-cost syntactic check (no whnf) gates apply/native_decide;
+-- fails immediately on non-Clifford goals without consuming heartbeats.
+-- Requires: cc.toQCircuit ⊨ .measurementProb ⟨ket0Vec n, ket0Vec_norm n⟩ q b p
+open Lean Meta Elab Tactic in
+elab "verify_clifford" : tactic => do
+  let goal ← getMainGoal
+  let goalTy ← goal.getType >>= instantiateMVars
+  -- `satisfies` has {n} + 2 explicit args → 3 terms in the curried expression.
+  let fn   := goalTy.getAppFn
+  let args := goalTy.getAppArgs
+  unless fn.isConst && fn.constName! == ``CircuitSpec.satisfies && args.size == 3 do
+    failure
+  -- Second arg (index 1) is the circuit; check head = CliffordCircuit.toQCircuit.
+  let circuit := args[1]!
+  unless circuit.getAppFn.isConst &&
+         circuit.getAppFn.constName! == ``CliffordCircuit.toQCircuit do
+    failure
+  -- Goal confirmed as Clifford form; dispatch to stabilizer backend.
+  evalTactic (← `(tactic| apply verify_stabilizer_prob_sound_real))
+  evalTactic (← `(tactic| norm_num))
+  evalTactic (← `(tactic| native_decide))
+
 /-- Tactic for discharging measurement probability goals automatically.
     Works for `measurementProb` and `jointMeasProb` on small circuits.
+
+    **Dispatch order:**
+    1. `verify_clifford` — stabilizer tableau backend for Clifford circuits in
+       `CliffordCircuit.toQCircuit` form with `ket0Vec` initial state (O(n²)).
+    2. Dense evaluator fallback (existing three-pass strategy) for all other goals.
 
     Named library circuits are unfolded automatically.  For user-defined
     named circuits, precede with `simp only [my_circuit]`. -/
 macro "verify_prob" : tactic => `(tactic| (
+  first
+  | verify_clifford
+  | (
   -- Pass 1: switch from `applyTo` to `evalCircuit` and unfold gate-by-gate.
   -- Using evalCircuit avoids building the full 2^n × 2^n matrix product chain;
   -- instead each gate is applied to the current state vector individually,
@@ -88,6 +120,8 @@ macro "verify_prob" : tactic => `(tactic| (
              QCircuit.bellPrep, QCircuit.ghzPrep, QCircuit.ofGate,
              -- Gate matrix dispatch
              Gate.matrix,
+             -- Concrete Rz gate matrices at recognized angles
+             LeanQVerify.Rz_mat_pi,
              -- Standard input states
              QState.ket0, QState.ket1,
              QState.ket00, QState.ket01, QState.ket10, QState.ket11,
@@ -129,9 +163,10 @@ macro "verify_prob" : tactic => `(tactic| (
                  Real.mul_self_sqrt (show (0:ℝ) ≤ 2 by norm_num),
                  Real.sqrt_ne_zero'.mpr (show (0:ℝ) < 2 by norm_num)])
   try (simp [Complex.normSq_mul, Complex.normSq_neg, Complex.normSq_zero,
-             Complex.normSq_one, map_pow, Complex.normSq_ofReal, Complex.normSq_inv]
+             Complex.normSq_one, Complex.normSq_I, map_pow,
+             Complex.normSq_ofReal, Complex.normSq_inv]
        norm_num [Real.sq_sqrt (show (0:ℝ) ≤ 2 by norm_num),
-                 Real.mul_self_sqrt (show (0:ℝ) ≤ 2 by norm_num)])))
+                 Real.mul_self_sqrt (show (0:ℝ) ≤ 2 by norm_num)]))))
 
 -- ── Demo theorems ─────────────────────────────────────────────────────────────
 
@@ -182,6 +217,32 @@ theorem groverStep2_correct_auto :
     (QCircuit.ofGate (.H 0) ++ QCircuit.ofGate (.H 1) ++ groverStep2)
     ⊨ .measurementProb QState.ket00 0 true 0.99 := by
   simp only [groverStep2, groverOracle2, groverDiffusion2]
+  verify_prob
+
+-- ── RZ exact-angle demos ─────────────────────────────────────────────────────
+
+/-- RZ(π) on |0⟩: measuring qubit 0 gives outcome 0 with probability 1.
+    RZ(π)|0⟩ = -i|0⟩ (global phase), so P(0) = normSq(-i) = 1. -/
+theorem rzPi_ket0_meas0 :
+    QCircuit.ofGate (.RZ Real.pi ⟨0, by decide⟩) ⊨
+    .measurementProb QState.ket0 ⟨0, by decide⟩ false 1 := by
+  verify_prob
+
+-- ── Stabilizer dispatch demos ─────────────────────────────────────────────────
+
+/-- Bell circuit (explicit CliffordCircuit form): verify_prob dispatches to
+    stabilizer backend, not the dense evaluator. -/
+theorem bellPrep_stab_auto :
+    bellPrepClifford.toQCircuit ⊨
+    .measurementProb ⟨ket0Vec 2, ket0Vec_norm 2⟩ 0 false (1/2 : ℝ) := by
+  verify_prob
+
+/-- 100-qubit GHZ: verify_prob dispatches to the stabilizer backend.
+    Dense evaluation of a 2^100-dimensional state is impossible;
+    the tableau simulator runs in O(n²) per gate via native_decide. -/
+theorem ghz100_via_verify_prob :
+    (ghzCliffordCircuit 99).toQCircuit ⊨
+    .measurementProb ⟨ket0Vec (99+1), ket0Vec_norm (99+1)⟩ ⟨0, by omega⟩ false (1/2 : ℝ) := by
   verify_prob
 
 end Demo

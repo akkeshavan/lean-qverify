@@ -1,4 +1,6 @@
 import LeanQVerify.Spec.StandardSpecs
+import LeanQVerify.Tactic.VerifyProb
+import LeanQVerify.Stabilizer.Sound
 
 /-!
 # Chapter 8 — Semantic Proofs
@@ -70,3 +72,41 @@ example : (QCircuit.ofGate (.H (⟨0, by norm_num⟩ : Fin 1)) ++
            QCircuit.ofGate (.H ⟨0, by norm_num⟩)) ≅
           (QCircuit.identity : QCircuit 1) :=
   H_H_eq_id 1 ⟨0, by norm_num⟩
+
+-- ── 6. Automated semantic proofs: verify_prob ─────────────────────────────────
+
+-- The manual approach above is complete but verbose.  The `verify_prob` tactic
+-- automates measurement-probability goals for small circuits and for Clifford
+-- circuits of any size.  No manual matrix algebra is needed.
+
+-- Bell circuit: P(q₀ = 0) ≥ 1/2, proved in one line.
+example : QCircuit.bellPrep ⊨ .measurementProb QState.ket00 0 false (1/2) := by
+  verify_prob
+
+-- Bell circuit: joint P(|00⟩) ≥ 1/2.
+example : QCircuit.bellPrep ⊨ .jointMeasProb QState.ket00 ⟨0, by decide⟩ (1/2) := by
+  verify_prob
+
+-- GHZ 3-qubit: joint P(|000⟩) ≥ 1/2.
+example : QCircuit.ghzPrep ⊨ .jointMeasProb QState.ket000 ⟨0, by decide⟩ (1/2) := by
+  verify_prob
+
+-- ── 7. Clifford circuits: stabilizer backend ─────────────────────────────────
+
+-- For Clifford circuits expressed as `CliffordCircuit.toQCircuit`, verify_prob
+-- dispatches to the stabilizer tableau backend instead of the dense evaluator.
+-- The tableau backend runs in O(n²) per gate, handling large qubit counts that
+-- are impossible with explicit matrix evaluation.
+
+-- bellPrepClifford is the Bell circuit as a CliffordCircuit.
+-- verify_prob detects the CliffordCircuit.toQCircuit form and dispatches to
+-- verify_stabilizer_prob_sound_real + native_decide automatically.
+example : bellPrepClifford.toQCircuit ⊨
+    .measurementProb ⟨ket0Vec 2, ket0Vec_norm 2⟩ 0 false (1/2 : ℝ) := by
+  verify_prob
+
+-- 100-qubit GHZ: dense evaluation is impossible (2^100 amplitudes).
+-- The stabilizer backend handles it in O(n²) via native_decide.
+example : (ghzCliffordCircuit 99).toQCircuit ⊨
+    .measurementProb ⟨ket0Vec 100, ket0Vec_norm 100⟩ ⟨0, by omega⟩ false (1/2 : ℝ) := by
+  verify_prob

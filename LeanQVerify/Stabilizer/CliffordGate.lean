@@ -98,4 +98,31 @@ theorem ofQCircuit?_sound {n : ℕ} (c : QCircuit n) (cc : CliffordCircuit n)
       | RZZ _ _ _ | RXX _ _ _ | RYY _ _ _ => simp at h
 
 end CliffordCircuit
+
+-- ---------------------------------------------------------------------------
+-- castSucc and parametric GHZ circuit
+-- ---------------------------------------------------------------------------
+
+/-- Lift a Clifford gate from n to n+1 qubits via Fin.castSucc. -/
+def CliffordGate.castSucc {n : ℕ} : CliffordGate n → CliffordGate (n + 1)
+  | .H q        => .H q.castSucc
+  | .S q        => .S q.castSucc
+  | .X q        => .X q.castSucc
+  | .Z q        => .Z q.castSucc
+  | .CNOT a b h => .CNOT a.castSucc b.castSucc (fun heq => h (Fin.castSucc_inj.mp heq))
+
+/-- CNOT entangling tail for GHZ within an (n+2)-qubit Clifford circuit. -/
+private def ghzCliffordCNOTs : (n : ℕ) → CliffordCircuit (n + 2)
+  | 0     => [.CNOT ⟨0, by omega⟩ ⟨1, by omega⟩
+               (by intro h; simp only [Fin.mk.injEq] at h; omega)]
+  | n + 1 => .CNOT ⟨0, by omega⟩ ⟨n + 2, by omega⟩
+               (by intro h; simp only [Fin.mk.injEq] at h; omega) ::
+             (ghzCliffordCNOTs n).map CliffordGate.castSucc
+
+/-- GHZ preparation as a Clifford circuit for n+1 qubits:
+    H on qubit 0, then CNOT(0, k) for k = 1..n. -/
+def ghzCliffordCircuit : (n : ℕ) → CliffordCircuit (n + 1)
+  | 0     => [.H ⟨0, by omega⟩]
+  | n + 1 => .H ⟨0, by omega⟩ :: ghzCliffordCNOTs n
+
 end LeanQVerify

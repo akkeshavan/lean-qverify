@@ -103,6 +103,15 @@ theorem ket0n_represents (n : ℕ) : Represents (ket0n n) (ket0Vec n) := by
   norm_num
   exact rowPauli_zOnly_ket0Vec _
 
+/-- The all-zeros state vector is normalized: ∑ |ket0Vec k|² = 1. -/
+lemma ket0Vec_norm (n : ℕ) : ∑ k : Fin (2^n), Complex.normSq (ket0Vec n k) = 1 := by
+  rw [Finset.sum_eq_single (⟨0, Nat.two_pow_pos n⟩ : Fin (2^n))
+      (fun k _ hk => by
+        simp only [ket0Vec, if_neg (show k.val ≠ 0 from fun h => hk (Fin.ext h)),
+                   Complex.normSq_zero])
+      (fun h => absurd (Finset.mem_univ _) h)]
+  simp [ket0Vec]
+
 -- ── Gate-by-gate Represents update ───────────────────────────────────────────
 
 -- S†·S = I, needed for the S-gate mulVec step
@@ -314,58 +323,456 @@ theorem stabSim_correct {n : ℕ} (c : CliffordCircuit n)
 def StabTableau.antiCommutesZ {n : ℕ} (t : StabTableau n) (row : Fin (2*n)) (q : Fin n) : Bool :=
   t.x row q
 
+-- ── Helper lemmas for zProb_correct ──────────────────────────────────────────
+
+private lemma inner_mulVec_left {n : ℕ} (M : Matrix (Fin (2^n)) (Fin (2^n)) ℂ)
+    (u v : Fin (2^n) → ℂ) :
+    ∑ k, star ((M *ᵥ u) k) * v k = ∑ k, star (u k) * ((M.conjTranspose *ᵥ v) k) := by
+  simp only [Matrix.mulVec, dotProduct, Matrix.conjTranspose_apply,
+             star_sum, star_mul, star_star, Finset.sum_mul, Finset.mul_sum]
+  conv_lhs => rw [Finset.sum_comm]
+  congr 1; ext k; congr 1; ext j; ring
+
+-- If M†M = I then M preserves the ℓ²-norm of state vectors.
+private lemma mulVec_normSq_of_unitary {n : ℕ}
+    (M : Matrix (Fin (2^n)) (Fin (2^n)) ℂ) (ψ : Fin (2^n) → ℂ)
+    (hU : M.conjTranspose * M = 1) :
+    ∑ k : Fin (2^n), Complex.normSq ((M *ᵥ ψ) k) =
+    ∑ k : Fin (2^n), Complex.normSq (ψ k) := by
+  have key : ∀ f : Fin (2^n) → ℂ, ∑ k, Complex.normSq (f k) =
+      (∑ k, star (f k) * f k).re := by
+    intro f
+    rw [Complex.re_sum]; congr 1; ext k
+    rw [star_def, ← Complex.normSq_eq_conj_mul_self]
+    exact Complex.ofReal_re _
+  rw [key (M *ᵥ ψ), key ψ]
+  congr 1
+  have hMtMψ : M.conjTranspose *ᵥ (M *ᵥ ψ) = ψ := by
+    rw [Matrix.mulVec_mulVec, hU, Matrix.one_mulVec]
+  rw [inner_mulVec_left M ψ (M *ᵥ ψ), hMtMψ]
+
+private lemma pauliMat_self_conj {x z : Bool} {r s : Fin 2} :
+    star (pauliMat x z r s) = pauliMat x z s r := by
+  fin_cases x <;> fin_cases z <;> fin_cases r <;> fin_cases s <;>
+  simp only [pauliMat_II, pauliMat_XI, pauliMat_IZ, pauliMat_XZ_eq_Y,
+             Matrix.one_apply, X_mat, Z_mat, Y_mat,
+             Matrix.cons_val_zero, Matrix.cons_val_one, Matrix.head_cons,
+             Matrix.smul_apply, star_zero, star_one, star_neg, Complex.star_def,
+             Complex.I_re, Complex.I_im] <;>
+  simp [Complex.ext_iff] <;> norm_num
+
+private lemma rowPauli_hermitian {n : ℕ} (x z : Fin n → Bool) :
+    (rowPauli x z).conjTranspose = rowPauli x z := by
+  ext k l
+  simp only [Matrix.conjTranspose_apply, rowPauli, Matrix.of_apply, star_prod]
+  congr 1; ext j
+  exact pauliMat_self_conj
+
+private lemma pauliOp_conj {n : ℕ} (phase : Bool) (x z : Fin n → Bool) :
+    (pauliOp phase x z).conjTranspose = pauliOp phase x z := by
+  simp only [pauliOp, Matrix.conjTranspose_smul, rowPauli_hermitian]
+  cases phase <;> simp [star_neg, star_one]
+
+private lemma Zq_anticomm_rowPauli {n : ℕ} (q : Fin n) (x z : Fin n → Bool)
+    (hxq : x q = true) :
+    embedGate1 n q Z_mat * rowPauli x z = -(rowPauli x z * embedGate1 n q Z_mat) := by
+  have hconj : embedGate1 n q Z_mat * rowPauli x z * embedGate1 n q Z_mat = -rowPauli x z := by
+    rw [Z_conj_rowPauli, hxq]; simp [neg_one_smul]
+  have hZsq := embedGate1_self_inverse n q Z_mat Z_mat_unitary
+  calc embedGate1 n q Z_mat * rowPauli x z
+      = embedGate1 n q Z_mat * rowPauli x z * 1 := (mul_one _).symm
+    _ = embedGate1 n q Z_mat * rowPauli x z *
+        (embedGate1 n q Z_mat * embedGate1 n q Z_mat) := by rw [hZsq]
+    _ = (embedGate1 n q Z_mat * rowPauli x z * embedGate1 n q Z_mat) *
+        embedGate1 n q Z_mat := by rw [← mul_assoc]
+    _ = -rowPauli x z * embedGate1 n q Z_mat := by rw [hconj]
+    _ = -(rowPauli x z * embedGate1 n q Z_mat) := by rw [neg_mul]
+
+private lemma embedGate1_Z_mulVec {n : ℕ} (q : Fin n) (ψ : Fin (2^n) → ℂ) (k : Fin (2^n)) :
+    (embedGate1 n q Z_mat *ᵥ ψ) k = (if k.val.testBit q.val then (-1 : ℂ) else 1) * ψ k := by
+  simp only [Matrix.mulVec, dotProduct, embedGate1, Matrix.of_apply]
+  rw [Finset.sum_eq_single k]
+  · simp only [show sameExcept n q k k from fun l _ => rfl, ↓reduceIte]
+    cases h : k.val.testBit q.val <;>
+    simp [h, Z_mat, natBit, Matrix.cons_val_zero, Matrix.cons_val_one, Matrix.head_cons]
+  · intro l _ hlk
+    split_ifs with hse
+    · have hne : natBit k.val q.val ≠ natBit l.val q.val := by
+        intro heq
+        apply hlk; symm
+        apply natBit_ext; intro j
+        by_cases hjq : j = q
+        · subst hjq
+          have hb := congr_arg Fin.val heq
+          simp only [natBit] at hb
+          split_ifs at hb with hk hl <;> simp_all
+        · exact hse j hjq
+      have hzero : Z_mat (natBit k.val q.val) (natBit l.val q.val) = 0 := by
+        cases hk : k.val.testBit (q.val) <;>
+        cases hl : l.val.testBit (q.val) <;>
+        simp_all [natBit, Z_mat, Matrix.cons_val_zero, Matrix.cons_val_one, Matrix.head_cons,
+                  Fin.ext_iff]
+      simp [hzero]
+    · simp
+  · intro hk; exact absurd (Finset.mem_univ k) hk
+
+-- ── Deterministic measurement probability (Aaronson–Gottesman §4) ─────────────
+
+-- i-exponent contribution (mod 4) from Pauli product (x_i,z_i)·(x_h,z_h).
+-- Convention matches rowsum(h, i) from A-G 2004: row i is multiplied into row h.
+-- Non-zero only for off-diagonal Pauli pairs; see A-G Table 1.
+private def rowMulExp₁ (x_i z_i x_h z_h : Bool) : Fin 4 :=
+  match x_i, z_i, x_h, z_h with
+  | true,  false, false, true  => ⟨3, by decide⟩   -- X·Z = -iY  → i^3
+  | true,  false, true,  true  => ⟨1, by decide⟩   -- X·Y = iZ   → i^1
+  | false, true,  true,  false => ⟨1, by decide⟩   -- Z·X = iY   → i^1
+  | false, true,  true,  true  => ⟨3, by decide⟩   -- Z·Y = -iX  → i^3
+  | true,  true,  true,  false => ⟨3, by decide⟩   -- Y·X = -iZ  → i^3
+  | true,  true,  false, true  => ⟨1, by decide⟩   -- Y·Z = iX   → i^1
+  | _,     _,     _,     _     => ⟨0, by decide⟩
+
+-- Phase bit for rowsum(h ← i·h) following A-G 2004 Table 1:
+-- new_r_h = [(2r_h + 2r_i + Σ_j g(x_i_j, z_i_j, x_h_j, z_h_j)) mod 4] / 2  (mod 2).
+-- Argument order matches A-G: g takes (row_i, row_h), computing σ_i · σ_h at each qubit.
+-- x_i,z_i,r_i = row i (the stabilizer); x_h,z_h,r_h = row h (scratch accumulator).
+private def rowMulPhaseBit {n : ℕ} (x_i z_i : Fin n → Bool) (r_i : Bool)
+    (x_h z_h : Fin n → Bool) (r_h : Bool) : Bool :=
+  let g_sum : Fin 4 := Finset.univ.sum (fun j : Fin n =>
+    rowMulExp₁ (x_i j) (z_i j) (x_h j) (z_h j))
+  let phase_base : Fin 4 :=
+    (if r_h then (⟨2, by decide⟩ : Fin 4) else 0) +
+    (if r_i then (⟨2, by decide⟩ : Fin 4) else 0)
+  (phase_base + g_sum) == (⟨2, by decide⟩ : Fin 4)
+
+-- Destabilizer row i is row i (index < n) in the 2n-row tableau.
+private abbrev destRow {n : ℕ} (i : Fin n) : Fin (2 * n) := ⟨i.val, by omega⟩
+
+-- Deterministic measurement outcome for qubit q via the A-G accumulation algorithm.
+-- Initialises scratch = +Z_q (x=0, z=e_q, phase=false); for each destabilizer row i
+-- with x[i,q]=true, multiplies scratch by stabilizer row (n+i).
+-- The final phase equals (-1)^m where m is the measurement outcome.
+private def zProbDet {n : ℕ} (t : StabTableau n) (q : Fin n) : Bool :=
+  let init : (Fin n → Bool) × (Fin n → Bool) × Bool :=
+    (fun _ => false, fun j => j == q, false)
+  let result := (List.finRange n).foldl (fun acc (i : Fin n) =>
+    if t.x (destRow i) q then
+      let (sx, sz, sp) := acc
+      let sr := stabRow i
+      (fun j => sx j ^^ t.x sr j,
+       fun j => sz j ^^ t.z sr j,
+       rowMulPhaseBit (t.x sr) (t.z sr) (t.phase sr) sx sz sp)
+    else acc) init
+  result.2.2
+
 /-- Extract the measurement probability for qubit q, outcome b, from a tableau.
-
-    Algorithm (Aaronson–Gottesman §4B):
-    - If no stabilizer anti-commutes with Z_q → deterministic outcome.
-      The outcome is determined by whether any stabilizer equals ±Z_q.
-    - Otherwise → random (probability 1/2).
-
-    This is a rational-valued function; we return ℚ for exactness.
-
-    Note: the full deterministic-case logic requires Gaussian elimination
-    to find which generator determines the outcome. Implemented as sorry
-    pending the elimination algorithm. -/
+    Random case (any stabilizer anti-commutes with Z_q): returns 1/2.
+    Deterministic case: returns 0 or 1 via the A-G accumulation algorithm. -/
 noncomputable def StabTableau.zProb {n : ℕ} (t : StabTableau n) (q : Fin n) (b : Bool) : ℚ :=
-  -- Check if any stabilizer row anti-commutes with Z_q
   if (Finset.univ.filter fun i : Fin n => t.antiCommutesZ (stabRow i) q).Nonempty
-  then 1 / 2  -- random outcome
-  else
-    -- Deterministic: find the sign of the stabilizer containing Z_q
-    -- (simplified: check if phase of the Z_q row agrees with b)
-    sorry
+  then 1 / 2
+  else if zProbDet t q = b then 1 else 0
 
-/-- Correctness of zProb: the tableau measurement probability equals the
-    Hilbert-space probability.
+/-- When Z_q commutes with all stabilizer generators (deterministic case),
+    ψ is a ±1 eigenstate of Z_q with eigenvalue (-1)^(zProbDet t q).
 
-    Proof: by the stabilizer formalism, the measurement probability
-    ∑_k [testBit k q = b] · |ψ(k)|² equals 1/2 in the random case and
-    0 or 1 in the deterministic case, exactly as computed by zProb.
+    Proof requires Aaronson–Gottesman tableau invariants: the stabilizer rows
+    form a maximal abelian subgroup, so their joint +1 eigenspace is
+    one-dimensional. Z_q commuting with all generators implies Z_q·ψ lies in
+    the same eigenspace, forcing Z_q·ψ = ±ψ; the sign follows from the
+    zProbDet accumulation algorithm. These invariants require ~500 lines of
+    symplectic linear-algebra infrastructure. -/
+private lemma zProbDet_eigenvalue {n : ℕ} (t : StabTableau n) (ψ : Fin (2^n) → ℂ)
+    (q : Fin n) (h : Represents t ψ)
+    (hcommute : ∀ i : Fin n, t.x (stabRow i) q = false) :
+    embedGate1 n q Z_mat *ᵥ ψ = (if zProbDet t q then (-1 : ℂ) else 1) • ψ := by
+  sorry
 
-    This theorem is the key connection between the tableau backend and the
-    CircuitSpec satisfaction judgment. -/
+-- When Z_q commutes with all stabilizers, any amplitude at a bit-position that
+-- disagrees with zProbDet vanishes.  Shared by both deterministic branches of
+-- zProb_correct to avoid repeating the key/hzero derivation.
+private lemma zProb_det_hzero {n : ℕ} (t : StabTableau n) (ψ : Fin (2^n) → ℂ)
+    (q : Fin n) (h : Represents t ψ)
+    (hrand : ¬(Finset.univ.filter fun i : Fin n =>
+                t.antiCommutesZ (stabRow i) q).Nonempty) :
+    ∀ k : Fin (2^n), k.val.testBit q.val ≠ zProbDet t q → ψ k = 0 := by
+  have key := zProbDet_eigenvalue t ψ q h (fun i => by
+    by_contra hi
+    have hx : t.x (stabRow i) q = true := by
+      cases h : t.x (stabRow i) q
+      · exact absurd h hi
+      · rfl
+    exact hrand ⟨i, Finset.mem_filter.mpr ⟨Finset.mem_univ i,
+      by simp [StabTableau.antiCommutesZ, hx]⟩⟩)
+  intro k hk
+  have hcomp : (if k.val.testBit q.val then (-1 : ℂ) else 1) * ψ k =
+      (if zProbDet t q then (-1 : ℂ) else 1) * ψ k := by
+    have h := embedGate1_Z_mulVec q ψ k
+    rw [key] at h
+    simp only [Pi.smul_apply, smul_eq_mul] at h
+    exact h.symm
+  have hne : (if k.val.testBit q.val then (-1 : ℂ) else 1) ≠
+      (if zProbDet t q then (-1 : ℂ) else 1) := by
+    cases h1 : k.val.testBit q.val <;> cases h2 : zProbDet t q <;>
+    simp_all <;> norm_num
+  have hsub : ((if k.val.testBit q.val then (-1 : ℂ) else 1) -
+      (if zProbDet t q then (-1 : ℂ) else 1)) * ψ k = 0 := by
+    rw [sub_mul]; linear_combination hcomp
+  exact (mul_eq_zero.mp hsub).resolve_left (sub_ne_zero.mpr hne)
+
+/-- Correctness of zProb for normalized states.
+    The tableau measurement probability equals the Hilbert-space probability. -/
 theorem zProb_correct {n : ℕ} (t : StabTableau n) (ψ : Fin (2^n) → ℂ)
-    (q : Fin n) (b : Bool) (h : Represents t ψ) :
+    (q : Fin n) (b : Bool) (h : Represents t ψ)
+    (hψ : ∑ k : Fin (2^n), Complex.normSq (ψ k) = 1) :
     (t.zProb q b : ℝ) =
     ∑ k : Fin (2^n), if k.val.testBit q.val = b then Complex.normSq (ψ k) else 0 := by
-  sorry
+  simp only [StabTableau.zProb]
+  split_ifs with hrand houtcome
+  · -- Random case: some stabilizer row r anti-commutes with Z_q
+    obtain ⟨r, hr⟩ := hrand
+    have hxq : t.x (stabRow r) q = true := by
+      have := (Finset.mem_filter.mp hr).2
+      simpa [StabTableau.antiCommutesZ] using this
+    set P := pauliOp (t.phase (stabRow r)) (t.x (stabRow r)) (t.z (stabRow r)) with hP_def
+    have hPψ : P *ᵥ ψ = ψ := h r
+    set Z_q := embedGate1 n q Z_mat with hZq_def
+    -- Zq_anticomm_rowPauli gives Z_q * rp = -(rp * Z_q);
+    -- we need the transpose form rp * Z_q = -(Z_q * rp) for hPZq.
+    have hanti_rp : rowPauli (t.x (stabRow r)) (t.z (stabRow r)) * Z_q =
+                    -(Z_q * rowPauli (t.x (stabRow r)) (t.z (stabRow r))) := by
+      have h := Zq_anticomm_rowPauli q (t.x (stabRow r)) (t.z (stabRow r)) hxq
+      rw [h, neg_neg]
+    have hPZq : P * Z_q = -(Z_q * P) := by
+      simp only [hP_def, pauliOp]
+      rw [Algebra.smul_mul_assoc, hanti_rp, smul_neg, Algebra.mul_smul_comm]
+    -- P *ᵥ (Z_q *ᵥ ψ) = -(Z_q *ᵥ ψ)  (anti-commutativity forces sign flip)
+    have hPZqψ : P *ᵥ (Z_q *ᵥ ψ) = -(Z_q *ᵥ ψ) :=
+      calc P *ᵥ (Z_q *ᵥ ψ)
+          = (P * Z_q) *ᵥ ψ := Matrix.mulVec_mulVec ψ P Z_q
+        _ = (-(Z_q * P)) *ᵥ ψ := by rw [hPZq]
+        _ = -((Z_q * P) *ᵥ ψ) := neg_mulVec ψ (Z_q * P)
+        _ = -(Z_q *ᵥ (P *ᵥ ψ)) := by rw [← Matrix.mulVec_mulVec]
+        _ = -(Z_q *ᵥ ψ) := by rw [hPψ]
+    -- ∑_k star(ψ k) * (Z_q *ᵥ ψ) k = 0  (D = -D → D = 0)
+    have hD_zero : ∑ k : Fin (2^n), star (ψ k) * (Z_q *ᵥ ψ) k = 0 := by
+      have hD_neg : ∑ k : Fin (2^n), star (ψ k) * (Z_q *ᵥ ψ) k =
+                    -(∑ k : Fin (2^n), star (ψ k) * (Z_q *ᵥ ψ) k) :=
+        calc ∑ k : Fin (2^n), star (ψ k) * (Z_q *ᵥ ψ) k
+            = ∑ k, star ((P *ᵥ ψ) k) * (Z_q *ᵥ ψ) k := by simp [hPψ]
+          _ = ∑ k, star (ψ k) * (P.conjTranspose *ᵥ (Z_q *ᵥ ψ)) k :=
+                inner_mulVec_left P ψ (Z_q *ᵥ ψ)
+          _ = ∑ k, star (ψ k) * (P *ᵥ (Z_q *ᵥ ψ)) k := by
+                have hPdag : P.conjTranspose = P := by rw [hP_def]; exact pauliOp_conj _ _ _
+                rw [hPdag]
+          _ = ∑ k, star (ψ k) * (-(Z_q *ᵥ ψ)) k := by rw [hPZqψ]
+          _ = -(∑ k, star (ψ k) * (Z_q *ᵥ ψ) k) := by
+                simp [Pi.neg_apply, mul_neg, Finset.sum_neg_distrib]
+      have h_sum_zero : ∑ k : Fin (2^n), star (ψ k) * (Z_q *ᵥ ψ) k +
+                        ∑ k : Fin (2^n), star (ψ k) * (Z_q *ᵥ ψ) k = 0 := by
+        nth_rw 2 [hD_neg]; ring
+      have h2D : (2 : ℂ) * ∑ k : Fin (2^n), star (ψ k) * (Z_q *ᵥ ψ) k = 0 := by
+        linear_combination h_sum_zero
+      exact (mul_eq_zero.mp h2D).resolve_left two_ne_zero
+    -- The real part of D equals S_false - S_true
+    let S_f : ℝ := ∑ k : Fin (2^n),
+        if k.val.testBit q.val = false then Complex.normSq (ψ k) else 0
+    let S_t : ℝ := ∑ k : Fin (2^n),
+        if k.val.testBit q.val = true  then Complex.normSq (ψ k) else 0
+    have hD_real : (∑ k : Fin (2^n), star (ψ k) * (Z_q *ᵥ ψ) k).re = S_f - S_t := by
+      show (∑ k : Fin (2^n), star (ψ k) * (Z_q *ᵥ ψ) k).re =
+           (∑ k : Fin (2^n), if k.val.testBit q.val = false then Complex.normSq (ψ k) else 0) -
+           (∑ k : Fin (2^n), if k.val.testBit q.val = true  then Complex.normSq (ψ k) else 0)
+      rw [← Finset.sum_sub_distrib, Complex.re_sum]
+      apply Finset.sum_congr rfl; intro k _
+      simp only [hZq_def, embedGate1_Z_mulVec]
+      cases h_bit : k.val.testBit q.val <;>
+      simp only [↓reduceIte, Bool.false_eq_true, Bool.true_eq_false,
+                 one_mul, neg_mul] <;>
+      simp only [Complex.neg_re, Complex.neg_im, Complex.mul_re, Complex.star_def,
+                 Complex.conj_re, Complex.conj_im, Complex.normSq_apply] <;> ring
+    have hD_re_zero : (∑ k : Fin (2^n), star (ψ k) * (Z_q *ᵥ ψ) k).re = 0 := by
+      rw [hD_zero]; simp
+    have hSfSt : S_f = S_t := by linarith [hD_real, hD_re_zero]
+    have hSfSt_sum : S_f + S_t = 1 := by
+      have heq : S_f + S_t = ∑ k : Fin (2^n), Complex.normSq (ψ k) := by
+        show (∑ k : Fin (2^n), if k.val.testBit q.val = false then Complex.normSq (ψ k) else 0) +
+             (∑ k : Fin (2^n), if k.val.testBit q.val = true  then Complex.normSq (ψ k) else 0) =
+             ∑ k : Fin (2^n), Complex.normSq (ψ k)
+        rw [← Finset.sum_add_distrib]
+        apply Finset.sum_congr rfl; intro k _
+        cases h_bit : k.val.testBit q.val <;> simp
+      rw [heq, hψ]
+    have hSf_half : S_f = 1 / 2 := by linarith
+    have hSt_half : S_t = 1 / 2 := by linarith
+    have h_cast : ((1 / 2 : ℚ) : ℝ) = 1 / 2 := by norm_num
+    rw [h_cast]
+    cases hb : b
+    · exact hSf_half.symm
+    · exact hSt_half.symm
+  · -- Deterministic, outcome = b → probability 1.
+    have hzero := zProb_det_hzero t ψ q h hrand
+    simp only [Rat.cast_one]
+    have hsum : ∑ k : Fin (2^n),
+        (if k.val.testBit q.val = b then Complex.normSq (ψ k) else 0) =
+        ∑ k : Fin (2^n), Complex.normSq (ψ k) :=
+      Finset.sum_congr rfl fun k _ => by
+        by_cases h' : k.val.testBit q.val = b
+        · simp [h']
+        · rw [if_neg h']
+          exact (Complex.normSq_eq_zero.mpr (hzero k (fun heq => h' (heq.trans houtcome)))).symm
+    linarith [hsum.trans hψ]
+  · -- Deterministic, outcome ≠ b → probability 0.
+    have hzero := zProb_det_hzero t ψ q h hrand
+    simp only [Rat.cast_zero]
+    symm
+    apply Finset.sum_eq_zero; intro k _
+    by_cases h' : k.val.testBit q.val = b
+    · rw [if_pos h']
+      exact Complex.normSq_eq_zero.mpr (hzero k fun heq => houtcome (heq ▸ h'))
+    · simp [h']
 
 -- ── Auto-verification interface ───────────────────────────────────────────────
 
-/-- Sound verification procedure: if zProb(q, b) ≥ p and the tableau is
-    obtained by stabSim from the initial state, then the circuit satisfies
-    the measurementProb specification.
-
-    This is the theorem that `verify_stabilizer_prob` would invoke. -/
+/-- Sound verification procedure: if zProb(q, b) ≥ p and the initial tableau
+    correctly represents ψ₀, the circuit satisfies the measurementProb spec. -/
 theorem verify_stabilizer_sound {n : ℕ} (c : CliffordCircuit n) (ψ₀ : QState n)
     (q : Fin n) (b : Bool) (p : ℝ) (t₀ : StabTableau n)
     (h₀ : Represents t₀ ψ₀.val)
-    (hp : p ≤ ((stabSim c t₀).zProb q b : ℝ)) :
+    (hp : p ≤ ((stabSim c t₀).zProb q b : ℝ))
+    (hψ₀ : ∑ k : Fin (2^n), Complex.normSq ((c.toQCircuit.applyTo ψ₀.val) k) = 1) :
     c.toQCircuit ⊨ .measurementProb ψ₀ q b p := by
   simp only [CircuitSpec.satisfies, CircuitSpec.measProb]
   calc p ≤ ((stabSim c t₀).zProb q b : ℝ) := hp
        _ = ∑ k : Fin (2^n), if k.val.testBit q.val = b
              then Complex.normSq (c.toQCircuit.applyTo ψ₀.val k) else 0 :=
-           zProb_correct _ _ q b (stabSim_correct c t₀ ψ₀.val h₀)
+           zProb_correct _ _ q b (stabSim_correct c t₀ ψ₀.val h₀) hψ₀
+
+-- ── Computable stabilizer verification ───────────────────────────────────────
+
+-- Each Clifford gate is unitary: G†G = I.
+private lemma cliffordGate_unitary {n : ℕ} (g : CliffordGate n) :
+    (g.toGate.matrix).conjTranspose * g.toGate.matrix = 1 := by
+  cases g with
+  | H q =>
+    simp only [CliffordGate.toGate, Gate.matrix]
+    rw [embedGate1_conjTranspose, embedGate1_mul, H_mat_conjTranspose, H_mat_unitary, embedGate1_one]
+  | S q =>
+    simp only [CliffordGate.toGate, Gate.matrix]
+    rw [embedGate1_conjTranspose, embedGate1_mul, S_mat_adj_self, embedGate1_one]
+  | X q =>
+    simp only [CliffordGate.toGate, Gate.matrix]
+    rw [embedGate1_conjTranspose, embedGate1_mul, X_mat_self_adjoint, X_mat_unitary, embedGate1_one]
+  | Z q =>
+    simp only [CliffordGate.toGate, Gate.matrix]
+    rw [embedGate1_conjTranspose, embedGate1_mul, Z_mat_self_adjoint, Z_mat_unitary, embedGate1_one]
+  | CNOT a b hab =>
+    simp only [CliffordGate.toGate, Gate.matrix]
+    rw [embedCNOT_self_adjoint n a b hab, embedCNOT_self_mul n a b hab]
+
+-- Every Clifford circuit starting from a normalized state produces a normalized state.
+private lemma cliffordCircuit_applyTo_norm {n : ℕ} (c : CliffordCircuit n)
+    (ψ : Fin (2^n) → ℂ) (hnorm : ∑ k, Complex.normSq (ψ k) = 1) :
+    ∑ k : Fin (2^n), Complex.normSq ((c.toQCircuit.applyTo ψ) k) = 1 := by
+  induction c generalizing ψ with
+  | nil =>
+    simp only [CliffordCircuit.toQCircuit, QCircuit.applyTo, QCircuit.denote_empty,
+               Matrix.one_mulVec, hnorm]
+  | cons g cs ih =>
+    simp only [CliffordCircuit.toQCircuit, QCircuit.applyTo, QCircuit.denote_cons,
+               ← Matrix.mulVec_mulVec]
+    exact ih _ (by rw [mulVec_normSq_of_unitary g.toGate.matrix ψ (cliffordGate_unitary g)];
+                   exact hnorm)
+
+/-- Any Clifford circuit preserves normalization of the all-zeros input state. -/
+theorem cliffordCircuit_applyTo_ket0Vec_norm {n : ℕ} (c : CliffordCircuit n) :
+    ∑ k : Fin (2^n), Complex.normSq ((c.toQCircuit.applyTo (ket0Vec n)) k) = 1 :=
+  cliffordCircuit_applyTo_norm c (ket0Vec n) (ket0Vec_norm n)
+
+/-- Bool decision procedure for random-case measurement probability.
+    Returns `true` iff:
+    (1) some stabilizer row anti-commutes with Z_q after simulating circuit c, AND
+    (2) p ≤ 1/2.
+    The initial state is always |0...0⟩ (represented by `ket0n n`). -/
+def verifyStabilizerProb {n : ℕ} (c : CliffordCircuit n) (q : Fin n) (_ : Bool) (p : ℚ) : Bool :=
+  let t := stabSim c (ket0n n)
+  decide ((Finset.univ.filter fun i : Fin n => t.antiCommutesZ (stabRow i) q).Nonempty) &&
+  decide (p ≤ 1 / 2)
+
+/-- Soundness of `verifyStabilizerProb`.
+    If the Bool check succeeds, the circuit satisfies
+    `measurementProb ⟨ket0Vec n, _⟩ q b p`. Normalization is automatic via
+    `cliffordCircuit_applyTo_ket0Vec_norm`. -/
+theorem verify_stabilizer_prob_sound {n : ℕ} (c : CliffordCircuit n)
+    (q : Fin n) (b : Bool) (p : ℚ)
+    (hv : verifyStabilizerProb c q b p = true) :
+    c.toQCircuit ⊨ .measurementProb ⟨ket0Vec n, ket0Vec_norm n⟩ q b (p : ℝ) := by
+  simp only [verifyStabilizerProb, Bool.and_eq_true, decide_eq_true_eq] at hv
+  obtain ⟨hrand, hple⟩ := hv
+  have h_zProb : ((stabSim c (ket0n n)).zProb q b : ℝ) = 1 / 2 := by
+    simp only [StabTableau.zProb, if_pos hrand]; norm_num
+  apply verify_stabilizer_sound c ⟨ket0Vec n, ket0Vec_norm n⟩ q b (p : ℝ) (ket0n n)
+      (ket0n_represents n) _ (cliffordCircuit_applyTo_ket0Vec_norm c)
+  rw [h_zProb]
+  have h12 : ((1 / 2 : ℚ) : ℝ) = 1 / 2 := by norm_num
+  calc (p : ℝ) ≤ ((1 / 2 : ℚ) : ℝ) := by exact_mod_cast hple
+            _ = 1 / 2 := h12
+
+-- ── Real-valued variant (for verify_prob tactic dispatch) ────────────────────
+
+/-- Variant of `verify_stabilizer_prob_sound` with a real-valued probability bound.
+    Used by the `verify_prob` tactic: `norm_num` closes `p ≤ 1/2` for concrete
+    values and `native_decide` checks the randomness condition on the tableau. -/
+theorem verify_stabilizer_prob_sound_real {n : ℕ} (c : CliffordCircuit n)
+    (q : Fin n) (b : Bool) (p : ℝ) (hp : p ≤ 1/2)
+    (hrand : (Finset.univ.filter fun i : Fin n =>
+              (stabSim c (ket0n n)).antiCommutesZ (stabRow i) q).Nonempty) :
+    c.toQCircuit ⊨ .measurementProb ⟨ket0Vec n, ket0Vec_norm n⟩ q b p := by
+  have h_zProb : ((stabSim c (ket0n n)).zProb q b : ℝ) = 1 / 2 := by
+    simp only [StabTableau.zProb, if_pos hrand]; norm_num
+  apply verify_stabilizer_sound c ⟨ket0Vec n, ket0Vec_norm n⟩ q b p (ket0n n)
+      (ket0n_represents n) _ (cliffordCircuit_applyTo_ket0Vec_norm c)
+  rw [h_zProb]; exact hp
+
+-- ── Stabilizer demo ───────────────────────────────────────────────────────────
+
+section StabilizerDemo
+
+/-- Bell circuit as an explicit Clifford circuit for stabilizer simulation. -/
+def bellPrepClifford : CliffordCircuit 2 := [.H 0, .CNOT 0 1 (by decide)]
+
+/-- `bellPrepClifford` embeds to the standard Bell preparation circuit. -/
+theorem bellPrepClifford_eq : bellPrepClifford.toQCircuit = QCircuit.bellPrep := by
+  simp [bellPrepClifford, CliffordCircuit.toQCircuit, CliffordGate.toGate, QCircuit.bellPrep]
+
+/-- The stabilizer tableau certifies random measurement for qubit 0 after `bellPrepClifford`. -/
+example : verifyStabilizerProb bellPrepClifford 0 false (1/2) = true := by native_decide
+
+/-- Bell circuit (from |00⟩) gives measurement probability ≥ 1/2 for qubit 0, outcome 0.
+    Proved entirely via the stabilizer path: no external normalization hypothesis needed. -/
+theorem bellPrep_stab_meas0 :
+    QCircuit.bellPrep ⊨ .measurementProb ⟨ket0Vec 2, ket0Vec_norm 2⟩ 0 false (1/2 : ℝ) := by
+  rw [show (1 / 2 : ℝ) = ((1 / 2 : ℚ) : ℝ) by norm_num, ← bellPrepClifford_eq]
+  exact verify_stabilizer_prob_sound bellPrepClifford 0 false (1/2) (by native_decide)
+
+end StabilizerDemo
+
+-- ── GHZ-100 stabilizer demo ───────────────────────────────────────────────────
+
+section GHZStabilizerDemo
+
+/-- The stabilizer tableau certifies random measurement for qubit 0 of
+    the 100-qubit GHZ preparation circuit. -/
+example : verifyStabilizerProb (ghzCliffordCircuit 99) ⟨0, by omega⟩ false (1/2) = true := by
+  native_decide
+
+/-- 100-qubit GHZ: measuring qubit 0 from |0^100⟩ after GHZ prep gives
+    outcome 0 with probability ≥ 1/2. Proved via stabilizer tableau. -/
+theorem ghz100_stab_meas0 :
+    (ghzCliffordCircuit 99).toQCircuit ⊨
+    .measurementProb ⟨ket0Vec (99 + 1), ket0Vec_norm (99 + 1)⟩ ⟨0, by omega⟩ false (1/2 : ℝ) := by
+  rw [show (1 / 2 : ℝ) = ((1 / 2 : ℚ) : ℝ) by norm_num]
+  exact verify_stabilizer_prob_sound (ghzCliffordCircuit 99) ⟨0, by omega⟩ false (1/2) (by native_decide)
+
+end GHZStabilizerDemo
 
 end LeanQVerify
