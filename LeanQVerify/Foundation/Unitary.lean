@@ -347,6 +347,20 @@ theorem embedGate1_self_inverse (n : ℕ) (i : Fin n) (G : Matrix (Fin 2) (Fin 2
 theorem embedGate1_one' (n : ℕ) (i : Fin n) :
     embedGate1 n i (1 : Matrix (Fin 2) (Fin 2) ℂ) = 1 := embedGate1_one n i
 
+/-- Embedding distributes over subtraction. -/
+theorem embedGate1_sub (n : ℕ) (i : Fin n) (A B : Matrix (Fin 2) (Fin 2) ℂ) :
+    embedGate1 n i (A - B) = embedGate1 n i A - embedGate1 n i B := by
+  ext a b
+  simp only [embedGate1, Matrix.sub_apply]
+  split_ifs <;> ring
+
+/-- Embedding distributes over scalar multiplication. -/
+theorem embedGate1_smul (n : ℕ) (i : Fin n) (c : ℂ) (A : Matrix (Fin 2) (Fin 2) ℂ) :
+    embedGate1 n i (c • A) = c • embedGate1 n i A := by
+  ext a b
+  simp only [embedGate1, Matrix.smul_apply, smul_eq_mul]
+  split_ifs <;> ring
+
 /-- For a single-qubit system, embedding a 2×2 gate at qubit 0 equals the gate itself. -/
 lemma embedGate1_one_qubit (G : Matrix (Fin 2) (Fin 2) ℂ) :
     embedGate1 1 ⟨0, by norm_num⟩ G = G := by

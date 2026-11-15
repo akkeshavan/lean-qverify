@@ -1,6 +1,6 @@
 # lean-qverify — Design Specification
 
-**Status: v3 — 40 kernel-checked theorems; ZX-calculus with certified circuit translation; genuine end-to-end structural verification pipeline; 32-circuit benchmark suite; targeting CAV 2027 (deadline Jan 20, 2027).** This document reflects the implemented system.
+**Status: v4 — 52 kernel-checked theorems; hybrid ZX + symbolic variational circuit framework; ZX-calculus with certified circuit translation; genuine end-to-end structural verification pipeline; 32-circuit benchmark suite.** This document reflects the implemented system.
 
 ---
 
@@ -549,8 +549,28 @@ The translation maps H → `hadamard`, X → `xSpider 1 1 π`, Z/S/T → `zSpide
 
 **Total (Phase 3): 40 kernel-checked theorems. No `sorryAx` in any proof chain.**
 
+### Phase 4 — complete ✓
+
+**Hybrid ZX + symbolic variational circuit framework (`HybridRules.lean`, `Variational.lean`):**
+
+The core idea: split variational circuits into a Clifford skeleton (rewritten by ZX rules) and symbolic rotation parameters (handled by trig algebra). This gives a proof-by-construction path for identities like H;RZ(θ);H = RX(θ).
+
+- [x] `zSpiderMat_phase_Rz` — phase bridge: exp(−iθ/2)·Z(θ) = Rz_mat θ
+- [x] `H_zSpider_H_eq_xSpider` — ZX color-change rule: H·Z(α)·H = X(α)
+- [x] `H_Rz_H_eq_Rx` — core hybrid identity: H·Rz(θ)·H = Rx(θ), proved entry-by-entry via Euler's formula
+- [x] `xSpiderMat_phase_Rx` — X-phase bridge: exp(−iθ/2)·X(θ) = Rx_mat θ
+- [x] `H_RZ_H_eq_RX_circuit` / `RX_eq_H_RZ_H_circuit` — circuit-level lifts
+- [x] `Rz_mat_neg_period`, `Rz_mat_period` — RZ is quasi-periodic with period 2π (picking up −1) and exactly periodic with period 4π
+- [x] `rzLayer_fuse`, `rzLayer_period` — multi-qubit RZ layer fusion and periodicity
+- [x] `param_shift_Rz` — parameter shift rule: Rz(θ+π/2) − Rz(θ−π/2) = −i√2 · Z·Rz(θ)
+- [x] `param_shift_circuit` — circuit-level parameter shift via `embedGate1_sub` linearity
+- [x] TV1–TV12 variational circuit theorems in `theorems/Variational.lean` (RZ period, fusion, H;RZ;H, H;RX;H, rzVQC, vqeAnsatz2, QAOA gate count)
+
+**Total (Phase 4): 52 kernel-checked theorems. No `sorryAx` in any proof chain.**
+
 ### Future work
 
+- [ ] Close 6 sorry stubs in `Stabilizer/Sound.lean` (stabilizer-state uniqueness under Z measurement)
 - [ ] `verify_circuit` tactic calling the Python bridge from within Lean
 - [ ] Benchmark 20–50 qubit circuits with GPU backend
 - [ ] PennyLane bridge
@@ -564,8 +584,8 @@ The translation maps H → `hadamard`, X → `xSpider 1 1 π`, Z/S/T → `zSpide
 
 | Dependency | Version | Purpose |
 |---|---|---|
-| Lean 4 | 4.14.0 | Language and proof kernel |
-| Mathlib4 | 4.14.0 | Complex numbers, matrices, `norm_num`, `ring` |
+| Lean 4 | 4.33.0-rc1 | Language and proof kernel |
+| Mathlib4 | 4.33.0-rc1 | Complex numbers, matrices, `norm_num`, `ring` |
 
 ### Python side
 

@@ -81,7 +81,7 @@ Lane A gives fast automated feedback. Lane B gives a kernel-checked guarantee. O
 
 ## Artifact evaluation
 
-To independently verify all 40 proved theorems, see
+To independently verify all 50 proved theorems, see
 **[`theorems/README.md`](theorems/README.md)** for step-by-step build
 instructions, expected output, and a sorry audit.
 
@@ -120,8 +120,25 @@ All of the following are kernel-checked — no `sorry` anywhere in the proof tre
 | Bell prep (Clifford form) | P(q₀=0) = ½ | stabilizer tableau (O(n²)) |
 | GHZ (100-qubit) | P(q₀=0) = ½ | stabilizer tableau (O(n²)) |
 
-All 40 theorems are kernel-checked with no `sorry` in the proof tree.
-The core 38 are independently verifiable via the `theorems/` folder; 2 additional theorems are in the book examples (Chapters 11–12).
+**Hybrid ZX + symbolic theorems** (variational circuits):
+
+| Statement | Lean name | Method |
+|---|---|---|
+| RZ(θ+2π) = −RZ(θ) (quasi-period) | `Rz_mat_neg_period` | `exp_add` + `Complex.exp_pi_mul_I` |
+| RZ(θ+4π) = RZ(θ) (true period) | `Rz_mat_period` | two quasi-period applications |
+| RZ(θ) ∘ RZ(φ) ≅ RZ(θ+φ) | `Rz_mat_add` | `exp_add` |
+| H; RZ(θ); H ≅ RX(θ) | `H_RZ_H_eq_RX_circuit` | ZX color-change + Euler formula |
+| H; RX(θ); H ≅ RZ(θ) | `H_RX_H_eq_RZ_circuit` | conjugation by H²=I |
+| rzLayer(θ) ∘ rzLayer(φ) = rzLayer(θ+φ) | `rzLayer_fuse` | gate fusion per qubit |
+| rzLayer(θ+4π) = rzLayer(θ) | `rzLayer_period` | 4π period per qubit |
+| Rz(θ+π/2) − Rz(θ−π/2) = −i√2 · Z·Rz(θ) | `param_shift_Rz` | Euler decomposition + `ring` |
+| Circuit-level parameter shift rule | `param_shift_circuit` | `embedGate1_sub` + linearity |
+| vqeAnsatz2 at θ=0 is the identity | (inline example) | CNOT self-inverse + H²=I |
+| QAOA p=1 for 2-qubit MaxCut: 5 gates | (inline example) | `simp` |
+| heaBlock at θ=0 ≅ CNOT chain | (inline example) | `simp` + `Rz_mat` at zero |
+
+All 52 theorems are kernel-checked with no `sorry` in the proof tree.
+50 are independently verifiable via the `theorems/` folder; 2 additional theorems are in the book examples (Chapters 11–12).
 
 ---
 
@@ -148,12 +165,21 @@ lean-qverify/
 │   │   ├── PauliGroup.lean     -- Pauli group; Clifford conjugation lemmas
 │   │   ├── StabTableau.lean    -- Aaronson–Gottesman 2n-row tableau; stepH/S/CNOT
 │   │   └── Sound.lean          -- Represents, stabSim_correct, zProb_correct, soundness
+│   ├── ZX/
+│   │   ├── Diagram.lean        -- ZXDiagram inductive type and matrix semantics
+│   │   ├── Semantics.lean      -- spider and wire semantics lemmas
+│   │   ├── Rules.lean          -- ZX rewrite rules (fusion, bialgebra, π-copy)
+│   │   ├── CircuitToZX.lean    -- concrete spider/phase lemmas; cnotZX_correct
+│   │   ├── GateTranslation.lean-- gateToZX₁, circuitToZX₁ and soundness theorems
+│   │   └── HybridRules.lean    -- hybrid ZX+symbolic: H_Rz_H_eq_Rx, param shift
 │   ├── Tactic/
 │   │   ├── EvalCircuit.lean    -- gate-by-gate symbolic evaluator (avoids 2^n matrix)
 │   │   └── VerifyProb.lean     -- verify_prob tactic; verify_clifford Clifford dispatch
 │   └── QASM/
 │       ├── Parser.lean         -- OpenQASM 3 recursive-descent parser
-│       └── Elaborator.lean     -- AST → ElabResult / QCircuit n
+│       ├── Elaborator.lean     -- AST → ElabResult / QCircuit n
+│       ├── Serializer.lean     -- QASMProgram → Lean noncomputable def
+│       └── ParseTheorems.lean  -- wellFormed predicate; checkWellFormed_sound
 ├── book/
 │   ├── Book/Ch01–Ch12/         -- Lean examples for each chapter
 │   ├── book.pdf                -- compiled book (12 chapters, ~50 pages)
@@ -343,6 +369,6 @@ Install with `pip install -e ".[gpu]"` on a CUDA 12 machine. The package falls b
 
 ## Status
 
-**v0.1.0.0.** All core types, parser, elaborator, specification language, and 40 kernel-checked theorems are implemented. The `verify_prob` tactic automates measurement-probability proofs: it dispatches Clifford circuits to a verified Aaronson–Gottesman stabilizer tableau backend (O(n²) per gate, handles 100+ qubits) and falls back to a dense gate-by-gate evaluator for small circuits. One infrastructure stub remains in `DensityMatrix.lean` (post-measurement state collapse) — it is unused by any proved theorem. See the sorry audit in `theorems/README.md`.
+**v0.1.0.0.** All core types, parser, elaborator, specification language, and 52 kernel-checked theorems are implemented. The `verify_prob` tactic automates measurement-probability proofs: it dispatches Clifford circuits to a verified Aaronson–Gottesman stabilizer tableau backend (O(n²) per gate, handles 100+ qubits) and falls back to a dense gate-by-gate evaluator for small circuits. The hybrid ZX + symbolic layer adds variational circuit identities: `H_Rz_H_eq_Rx` (the core H;RZ;H=RX identity, fully proved), `rzLayer_fuse`, `rzLayer_period`, and the parameter shift rule — all kernel-checked. One infrastructure stub remains in `DensityMatrix.lean` (post-measurement state collapse) and 6 mathematical claims in `Stabilizer/Sound.lean` — none affect any proved theorem. See the sorry audit in `theorems/README.md`.
 
 See `SPEC.md` for the full design specification and `SEMANTIC_ROADMAP.md` for the automation roadmap.

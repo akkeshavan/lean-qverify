@@ -27,3 +27,5 @@ import LeanQVerify.Stabilizer.CliffordGate
 import LeanQVerify.Stabilizer.PauliGroup
 import LeanQVerify.Stabilizer.StabTableau
 import LeanQVerify.Stabilizer.Sound
+import LeanQVerify.Circuit.Variational
+import LeanQVerify.ZX.HybridRules

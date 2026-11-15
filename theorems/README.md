@@ -1,7 +1,7 @@
 # Independent Theorem Verification
 
-This folder is the self-contained artifact for verifying all 38 theorems
-claimed in the paper.  A clean build of this folder — with the exact output
+This folder is the self-contained artifact for verifying all 50 theorems
+in the library.  A clean build of this folder — with the exact output
 described below — is the machine-checked certificate.
 
 ---
@@ -30,13 +30,14 @@ Build completed successfully.
 
 **Expected warnings (harmless):** you will see lines like:
 ```
-warning: .../DensityMatrix.lean:38:18: declaration uses 'sorry'
+warning: .../Stabilizer/Sound.lean:578:14: declaration uses `sorry`
 warning: .../Unitary.lean:116:2: 'all_goals ring' tactic does nothing
 info: .../StandardSpecs.lean:192:16: Try this: ring_nf
 ```
-These are expected.  `DensityMatrix.lean` is infrastructure not used by any
-proved theorem (see [Sorry audit](#sorry-audit) below).  The `ring` and
-`ring_nf` lines are linter suggestions, not errors.
+These are expected.  `Stabilizer/Sound.lean` has 6 pre-existing sorry stubs
+for a single mathematical claim (stabilizer-state uniqueness under Z measurement)
+that does not affect any proved theorem (see [Sorry audit](#sorry-audit) below).
+The `ring` and `ring_nf` lines are linter suggestions, not errors.
 
 **Fail criterion:** any line containing `error:` or `unsolved goals` means a
 proof is broken.
@@ -117,7 +118,7 @@ lake exe cache get
 lake build
 ```
 
-This sub-package imports the compiled library and runs all 38 theorem
+This sub-package imports the compiled library and runs all 50 theorem
 type-checks independently.  Each `example` forces Lean's kernel to re-verify
 the stated proposition against the named proof term.
 
@@ -148,6 +149,7 @@ error.
 | `GateAlgebra.lean` | T19–T28 | Gate algebra identities |
 | `Grover.lean` | T29 | Grover's algorithm (2 qubits, 1 step) |
 | `Axioms.lean` | T30–T38 | DensityMatrix + Parametric + QASM parser |
+| `Variational.lean` | T39–T50 | Hybrid ZX + symbolic; variational circuits |
 
 To check a single group:
 
@@ -159,16 +161,23 @@ lake build HEA
 lake build GateAlgebra
 lake build Grover
 lake build Axioms
+lake build Variational
 ```
 
 ---
 
 ## Sorry audit
 
-The repository contains **zero `sorry` instances** in library or theorem source files.
-All 38 theorems have clean `#print axioms` output (only `Classical.choice`, `propext`, `Quot.sound`).
+All 50 theorems have clean `#print axioms` output — the proof trees contain
+only `Classical.choice`, `propext`, `Quot.sound`, and `funext`.  No `sorryAx`.
 
-To confirm:
+The repository has **6 sorry stubs** in `Stabilizer/Sound.lean` for a single
+unresolved mathematical claim (stabilizer-state uniqueness under Z measurement
+in the deterministic branch of `zProb_correct`).  These stubs are **not** in
+any proved theorem's dependency chain — all 50 theorems in `theorems/` are
+clean.
+
+To confirm the proved theorems are sorry-free:
 
 ```bash
 # From the repository root:
@@ -176,6 +185,7 @@ To confirm:
 grep -Prn "^\s*sorry\s*$|:=\s*sorry" \
   LeanQVerify/Circuit/Identities.lean \
   LeanQVerify/Circuit/Parametric.lean \
+  LeanQVerify/Circuit/Variational.lean \
   LeanQVerify/Spec/StandardSpecs.lean \
   LeanQVerify/Foundation/Unitary.lean \
   LeanQVerify/Foundation/QState.lean \
@@ -184,10 +194,17 @@ grep -Prn "^\s*sorry\s*$|:=\s*sorry" \
   LeanQVerify/Circuit/QCircuit.lean \
   LeanQVerify/Spec/CircuitSpec.lean \
   LeanQVerify/Spec/Satisfies.lean \
-  LeanQVerify/QASM/ParseTheorems.lean
+  LeanQVerify/QASM/ParseTheorems.lean \
+  LeanQVerify/ZX/HybridRules.lean
 ```
 
 This command should produce **no output**.
+
+To inspect the Sound.lean stubs (expected, does not affect proved theorems):
+
+```bash
+grep -n "sorry" LeanQVerify/Stabilizer/Sound.lean | grep -v "^.*--"
+```
 
 ---
 
@@ -233,6 +250,18 @@ This command should produce **no output**.
 | T36 | `checkWellFormed_sound` | Bool checker ⇒ formal `wellFormed` Prop | `List.all_eq_true` + `BEq` |
 | T37 | `bellProgram_wellFormed` | Bell QASM program passes checker | `rfl` |
 | T38 | `ghz3Program_wellFormed` | GHZ-3 QASM program passes checker | `rfl` |
+| T39 | `Rz_mat_neg_period` | RZ(θ+2π) = −RZ(θ) (quasi-period) | `exp_add` + Euler |
+| T40 | `Rz_mat_period` | RZ(θ+4π) = RZ(θ) (true period) | two quasi-periods |
+| T41 | (gate-level 4π) | embed(RZ(θ+4π)) = embed(RZ(θ)) | `Rz_mat_period` |
+| T42 | (RZ fusion) | RZ(θ,i) ++ RZ(φ,i) ≅ RZ(θ+φ,i) | `Rz_mat_add` |
+| T43 | (H;RZ;H circuit) | H_i; RZ(θ,i); H_i ≅ RX(θ,i) | `H_RZ_H_eq_RX_circuit` |
+| T44 | `H_RX_H_eq_RZ_circuit` | H_i; RX(θ,i); H_i ≅ RZ(θ,i) | conjugation by H²=I |
+| T45 | (rzVQC period) | rzVQC(θ).denote = rzVQC(θ+4π).denote | `Rz_mat_period` |
+| T46 | (heaBlock zero) | heaBlock(0⃗,0⃗).denote = cnotChainFwd | `simp` + `Rz_mat` at zero |
+| T47 | (vqeAnsatz2 at 0) | vqeAnsatz2(0).denote = 1 | CNOT self-inverse + H²=I |
+| T48 | (QAOA gate count) | countGates(qaoa1Layer γ β) = 5 | `simp` |
+| T49 | `param_shift_Rz` | Rz(θ+π/2) − Rz(θ−π/2) = −i√2·Z·Rz(θ) | Euler + `ring` |
+| T50 | `param_shift_circuit` | circuit-level parameter shift rule | `embedGate1_sub` |
 
 ---
 

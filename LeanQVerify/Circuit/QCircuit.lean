@@ -72,6 +72,17 @@ theorem denote_empty {n : ℕ} : (QCircuit.empty : QCircuit n).denote = 1 := rfl
 theorem denote_cons {n : ℕ} (g : Gate n) (c : QCircuit n) :
     (QCircuit.cons g c).denote = c.denote * g.matrix := rfl
 
+@[simp]
+theorem size_append {n : ℕ} (c₁ c₂ : QCircuit n) :
+    (c₁ ++ c₂).size = c₁.size + c₂.size := by
+  induction c₁ with
+  | empty =>
+    change c₂.size = 0 + c₂.size
+    omega
+  | cons g c ih =>
+    change 1 + (c ++ c₂).size = 1 + c.size + c₂.size
+    omega
+
 private theorem denote_append {n : ℕ} (c₁ c₂ : QCircuit n) :
     (c₁.append c₂).denote = c₂.denote * c₁.denote := by
   induction c₁ with
